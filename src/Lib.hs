@@ -4,14 +4,10 @@
 module Lib where
 
 import           Protolude
-import qualified Data.List as Lst
 import qualified Data.Text as Txt
-import qualified Data.Text.IO as Txt
-import qualified Data.Map as Map
 import qualified System.Directory as Dir
 import           System.FilePath ((</>))
 import           Data.Functor.Syntax ((<$$>))
-import           System.FilePath (FilePath)
 import qualified System.FilePath as FP
 
 
@@ -23,11 +19,12 @@ data PassDir = PassDir { pdName :: Text
                        , pdPath :: FilePath
                        , pdFiles :: [PassFile]
                        , pdChildren :: [PassDir]
+                       , pdDepth :: Int
                        } deriving (Show, Eq)
 
 
-loadPass :: Text -> FilePath -> IO PassDir
-loadPass name root = do
+loadPass :: Int -> Text -> FilePath -> IO PassDir
+loadPass depth name root = do
   entries <- (root </>) <$$> Dir.listDirectory root
 
   files <- filterM Dir.doesFileExist entries
@@ -35,13 +32,17 @@ loadPass name root = do
   let passFiles = (\f -> PassFile (Txt.pack $ FP.takeBaseName f) f) <$> gpgs
 
   dirs <- filterM Dir.doesDirectoryExist entries
-  passFolders' <- traverse (\p -> loadPass (Txt.pack $ FP.takeBaseName p) p) $ sort dirs
+  passFolders' <- traverse (\p -> loadPass (depth + 1) (Txt.pack $ FP.takeBaseName p) p) $ sort dirs
   let passFolders = filter isValidFolder passFolders'
   
-  pure $ PassDir name root passFiles passFolders 
+  pure $ PassDir name root passFiles passFolders depth
 
   where
     isValidFolder p = pdName p /= ".git" && length (pdChildren p) + length (pdFiles p) > 0
+
+flattenDirs :: PassDir -> [PassDir]
+flattenDirs p =
+  [p] <> (flattenDirs =<< pdChildren p)
 
 prnTree :: Bool -> PassDir -> Text
 prnTree showFiles =

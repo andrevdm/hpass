@@ -11,7 +11,6 @@ import qualified Brick as B
 import qualified Brick.BChan as BCh
 import qualified Brick.AttrMap as BA
 import qualified Brick.Widgets.List as BL
-import qualified Brick.Widgets.Center as BC
 import qualified Brick.Widgets.Border as BB
 import qualified Brick.Widgets.Border.Style as BBS
 import qualified Graphics.Vty as V
@@ -20,9 +19,8 @@ import qualified Lib
 
 main :: IO ()
 main = do
-  ps <- Lib.loadPass "\\" "/home/andre/.password-store"
-  --let is = Txt.lines $ Lib.prnTree False ps
-  let items = Vec.fromList []
+  ps <- Lib.loadPass 0 "\\" "/home/andre/.password-store"
+  let items = Vec.fromList $ Lib.flattenDirs ps
 
   chan <- BCh.newBChan 10
   let g = St ps (BL.list ListFolder items 1) (BL.list ListFile Vec.empty 1)
@@ -48,6 +46,7 @@ app = B.App { B.appDraw = drawUI
 
 handleEvent :: St -> B.BrickEvent Name Event -> B.EventM Name (B.Next St)
 handleEvent g (B.VtyEvent (V.EvKey V.KEsc [])) = B.halt g
+handleEvent g (B.VtyEvent (V.EvKey (V.KChar 'q') [])) = B.halt g
 handleEvent g (B.VtyEvent e) = do
   g' <- case e of
           V.EvKey (V.KChar 'k') [] -> do
@@ -88,13 +87,13 @@ drawUI g =
       B.withBorderStyle BBS.unicodeRounded $
       BB.borderWithLabel (B.str "passwords") $
       B.padAll 1 $
-      BL.renderList listDrawFile True (stListFile g)
+      BL.renderList listDrawFile False (stListFile g)
     )
   ]
 
 listDrawDir :: Bool -> Lib.PassDir -> B.Widget a
 listDrawDir _ d =
-  B.str . Txt.unpack $ Lib.pdName d
+  B.str . Txt.unpack $ Txt.replicate (Lib.pdDepth d) " " <> Lib.pdName d
 
 listDrawFile :: Bool -> Lib.PassFile -> B.Widget a
 listDrawFile _ f =
