@@ -15,12 +15,18 @@ import           System.FilePath (FilePath)
 import qualified System.FilePath as FP
 
 
-data Pass = PassFolder Text FilePath [Pass]
-          | PassFile Text FilePath
-          deriving (Show)
+data PassFile = PassFile { pfName :: Text,
+                           pfPath :: FilePath
+                         } deriving (Show, Eq)
+
+data PassDir = PassDir { pdName :: Text
+                       , pdPath :: FilePath
+                       , pdFiles :: [PassFile]
+                       , pdChildren :: [PassDir]
+                       } deriving (Show, Eq)
 
 
-loadPass :: Text -> FilePath -> IO Pass
+loadPass :: Text -> FilePath -> IO PassDir
 loadPass name root = do
   entries <- (root </>) <$$> Dir.listDirectory root
 
@@ -32,24 +38,22 @@ loadPass name root = do
   passFolders' <- traverse (\p -> loadPass (Txt.pack $ FP.takeBaseName p) p) $ sort dirs
   let passFolders = filter isValidFolder passFolders'
   
-  pure $ PassFolder name root $ passFolders <> passFiles
+  pure $ PassDir name root passFiles passFolders 
 
   where
-    isValidFolder (PassFolder n _ (_:_)) = n /= ".git"
-    isValidFolder _ = False
+    isValidFolder p = pdName p /= ".git" && length (pdChildren p) + length (pdFiles p) > 0
 
-prnTree :: Bool -> Pass -> Text
-prnTree showFiles p =
-  go "" p
+prnTree :: Bool -> PassDir -> Text
+prnTree showFiles =
+  go "" 
 
   where
-    go pre (PassFile name _) =
-      if showFiles
-        then pre <> "  " <> name <> "\n"
-        else ""
+    go pre p =
+      let fs = if showFiles
+               then Txt.concat $ (\f -> pre <> "    " <> pfName f <> "\n") <$> pdFiles p
+               else "" in
     
-    go pre (PassFolder name _ ps) =
-      pre <> "  " <> name <> "\n" <> Txt.concat (go (pre <> "  ") <$> ps)
+      pre <> "  /" <> pdName p <> "\n" <> fs <> Txt.concat (go (pre <> "  ") <$> pdChildren p)
       
   
   

@@ -21,11 +21,11 @@ import qualified Lib
 main :: IO ()
 main = do
   ps <- Lib.loadPass "\\" "/home/andre/.password-store"
-  let is = Txt.lines $ Lib.prnTree False ps
-  let items = Vec.fromList is
+  --let is = Txt.lines $ Lib.prnTree False ps
+  let items = Vec.fromList []
 
   chan <- BCh.newBChan 10
-  let g = St ps Nothing (BL.list ListFolder items 1) (BL.list ListFile Vec.empty 1)
+  let g = St ps (BL.list ListFolder items 1) (BL.list ListFile Vec.empty 1)
   void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app g
 
 data Name = ListFolder
@@ -33,10 +33,9 @@ data Name = ListFolder
           deriving (Show, Ord, Eq)
           
 data Event = Event
-data St = St { stPassAll :: Lib.Pass
-             , stPassSelected :: Maybe Lib.Pass
-             , stListFolder :: BL.List Name Text
-             , stListFile :: BL.List Name Text
+data St = St { stPassAll :: Lib.PassDir
+             , stListDir :: BL.List Name Lib.PassDir
+             , stListFile :: BL.List Name Lib.PassFile
              }
 
 app :: B.App St Event Name
@@ -52,24 +51,24 @@ handleEvent g (B.VtyEvent (V.EvKey V.KEsc [])) = B.halt g
 handleEvent g (B.VtyEvent e) = do
   g' <- case e of
           V.EvKey (V.KChar 'k') [] -> do
-            let r = BL.listMoveBy (-1) $ stListFolder g
-            pure g { stListFolder = r }
+            let r = BL.listMoveBy (-1) $ stListDir g
+            pure g { stListDir = r }
           V.EvKey (V.KChar 'j') [] -> do
-            let r = BL.listMoveBy 1 $ stListFolder g
-            pure g { stListFolder = r }
+            let r = BL.listMoveBy 1 $ stListDir g
+            pure g { stListDir = r }
 
           _ -> do
-            r <- BL.handleListEvent e (stListFolder g)
-            pure g { stListFolder = r }
+            r <- BL.handleListEvent e (stListDir g)
+            pure g { stListDir = r }
 
-  case BL.listSelectedElement (stListFolder g) of
-    Nothing ->
-      pure g { stListFile = BL.listClear (stListFile g) }
-    Just (idx, e) -> do
-      let items = Vec.fromList [""]
-      pure g { stListFile = BL.list ListFile items 1 }
+  r <- case BL.listSelectedElement (stListDir g') of
+         Nothing ->
+           pure g { stListFile = BL.listClear (stListFile g') }
+         Just (_, dir) -> do
+           let items = Vec.fromList $ Lib.pdFiles dir
+           pure g' { stListFile = BL.list ListFile items 1 }
   
-  B.continue g'
+  B.continue r
 handleEvent g _ = B.continue g
 
 -- Drawing
@@ -81,7 +80,7 @@ drawUI g =
       B.withBorderStyle BBS.unicodeRounded $
       BB.borderWithLabel (B.str "folders") $
       B.padAll 1 $
-      BL.renderList listDrawElement True (stListFolder g)
+      BL.renderList listDrawDir True (stListDir g)
     )
     <+>
     (
@@ -89,13 +88,17 @@ drawUI g =
       B.withBorderStyle BBS.unicodeRounded $
       BB.borderWithLabel (B.str "passwords") $
       B.padAll 1 $
-      BL.renderList listDrawElement True (stListFile g)
+      BL.renderList listDrawFile True (stListFile g)
     )
   ]
 
-listDrawElement :: Bool -> Text -> B.Widget a
-listDrawElement _ =
-  B.str . Txt.unpack
+listDrawDir :: Bool -> Lib.PassDir -> B.Widget a
+listDrawDir _ d =
+  B.str . Txt.unpack $ Lib.pdName d
+
+listDrawFile :: Bool -> Lib.PassFile -> B.Widget a
+listDrawFile _ f =
+  B.str . Txt.unpack $ Lib.pfName f
 
 
 customAttr :: BA.AttrName
