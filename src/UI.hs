@@ -29,6 +29,7 @@ main = do
               , stListDir = BL.list ListDir items 1
               , stListFile = BL.list ListFile Vec.empty 1
               , stFocusRing = BF.focusRing [ListDir, ListFile]
+              , stDetail = []
               }
           
   void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
@@ -42,6 +43,7 @@ data St = St { stPassAll :: Lib.PassDir
              , stListDir :: BL.List Name Lib.PassDir
              , stListFile :: BL.List Name Lib.PassFile
              , stFocusRing :: BF.FocusRing Name
+             , stDetail :: [Text]
              }
 
 app :: B.App St Event Name
@@ -61,41 +63,70 @@ handleEvent st (B.VtyEvent e) = do
              case e of
                     V.EvKey (V.KChar 'k') [] -> do
                       let r = BL.listMoveBy (-1) $ stListFile st
-                      pure st { stListFile = r }
+                      pure st { stListFile = r
+                              , stDetail = []
+                              }
 
                     V.EvKey (V.KChar 'j') [] -> do
                       let r = BL.listMoveBy 1 $ stListFile st
-                      pure st { stListFile = r }
+                      pure st { stListFile = r 
+                              , stDetail = []
+                              }
 
                     V.EvKey (V.KChar 'h') [] ->
-                      pure st { stFocusRing = BF.focusPrev . stFocusRing $ st }
+                      pure st { stFocusRing = BF.focusPrev . stFocusRing $ st 
+                              , stDetail = []
+                              }
 
                     V.EvKey (V.KChar '\t') [] ->
-                      pure st { stFocusRing = BF.focusPrev . stFocusRing $ st }
+                      pure st { stFocusRing = BF.focusPrev . stFocusRing $ st 
+                              , stDetail = []
+                              }
+
+                    V.EvKey (V.KChar 'l') [] -> do
+                      let ts = case BL.listSelectedElement (stListFile st) of
+                                 Just (_, file) ->
+                                   [Lib.pfName file]
+
+                                 _ ->
+                                   []
+                      pure st { stDetail = ts }
 
                     _ -> do
                       r <- BL.handleListEvent e (stListFile st)
-                      pure st { stListFile = r }
+                      pure st { stListFile = r 
+                              , stDetail = []
+                              }
 
            Just ListDir -> do
              st2 <- case e of
                       V.EvKey (V.KChar 'k') [] -> do
                         let r = BL.listMoveBy (-1) $ stListDir st
-                        pure st { stListDir = r }
+                        pure st { stListDir = r 
+                                , stDetail = []
+                                }
 
                       V.EvKey (V.KChar 'j') [] -> do
                         let r = BL.listMoveBy 1 $ stListDir st
-                        pure st { stListDir = r }
+                        pure st { stListDir = r  
+                                , stDetail = []
+                                }
 
                       V.EvKey (V.KChar 'l') [] ->
-                        pure st { stFocusRing = BF.focusNext . stFocusRing $ st }
+                        pure st { stFocusRing = BF.focusNext . stFocusRing $ st  
+                                , stDetail = []
+                                }
 
                       V.EvKey (V.KChar '\t') [] ->
-                        pure st { stFocusRing = BF.focusNext . stFocusRing $ st }
+                        pure st { stFocusRing = BF.focusNext . stFocusRing $ st  
+                                , stDetail = []
+                                }
 
                       _ -> do
                         r <- BL.handleListEvent e (stListDir st)
-                        pure st { stListDir = r }
+                        pure st { stListDir = r  
+                                , stDetail = []
+                                }
 
              case BL.listSelectedElement (stListDir st2) of
                 Nothing ->
@@ -115,7 +146,7 @@ handleEvent st _ = B.continue st
 drawUI :: St -> [B.Widget Name]
 drawUI st =
   [ (
-      B.hLimit 50 $
+      B.hLimit 30 $ --TODO calc max width
       B.withBorderStyle BBS.unicodeRounded $
       BB.borderWithLabel (B.str "folders") $
       B.padAll 1 $
@@ -123,11 +154,31 @@ drawUI st =
     )
     <+>
     (
-      B.hLimit 90 $
+      B.padTop (B.Pad 1) $
+      B.padBottom (B.Pad 1) $
+      B.hLimit 50 $ --TODO calc max width across all
       B.withBorderStyle BBS.unicodeRounded $
       BB.borderWithLabel (B.str "passwords") $
       B.padAll 1 $
-      BF.withFocusRing (stFocusRing st) (BL.renderList listDrawFile) (stListFile st))] 
+      BF.withFocusRing (stFocusRing st) (BL.renderList listDrawFile) (stListFile st)
+    )
+    <+>
+    (
+      if (not . null) $ stDetail st
+      then
+        B.padTop (B.Pad 8) $
+        B.padBottom (B.Pad 2) $
+        B.hLimit 120 $
+        B.vLimit 20 $
+        B.withBorderStyle BBS.unicodeRounded $
+        BB.borderWithLabel (B.str "detail") $
+        B.padAll 1 $
+        B.txt . Txt.intercalate "\n" $ stDetail st
+      else
+        B.emptyWidget
+    )
+  ] 
+
 listDrawDir :: Bool -> Lib.PassDir -> B.Widget a
 listDrawDir _ d =
   B.str . Txt.unpack $ Txt.replicate (Lib.pdDepth d) " " <> Lib.pdName d
