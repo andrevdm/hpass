@@ -16,16 +16,28 @@ import qualified Brick.Widgets.Border as BB
 import qualified Brick.Widgets.Border.Style as BBS
 import qualified Graphics.Vty as V
 
+import qualified Lib
+
 main :: IO ()
 main = do
+  ps <- Lib.loadPass "\\" "/home/andre/.password-store"
+  let is = Txt.lines $ Lib.prnTree False ps
+  let items = Vec.fromList is
+
   chan <- BCh.newBChan 10
-  let items = Vec.fromList ["a", "b", "ccc"]
-  let g = St $ BL.list () items 1
+  let g = St ps Nothing (BL.list ListFolder items 1) (BL.list ListFile Vec.empty 1)
   void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app g
 
-type Name = ()
+data Name = ListFolder
+          | ListFile
+          deriving (Show, Ord, Eq)
+          
 data Event = Event
-data St = St { stList :: BL.List Name Text }
+data St = St { stPassAll :: Lib.Pass
+             , stPassSelected :: Maybe Lib.Pass
+             , stListFolder :: BL.List Name Text
+             , stListFile :: BL.List Name Text
+             }
 
 app :: B.App St Event Name
 app = B.App { B.appDraw = drawUI
@@ -37,32 +49,51 @@ app = B.App { B.appDraw = drawUI
 
 handleEvent :: St -> B.BrickEvent Name Event -> B.EventM Name (B.Next St)
 handleEvent g (B.VtyEvent (V.EvKey V.KEsc [])) = B.halt g
-handleEvent g (B.VtyEvent e) =
-  case e of
-    V.EvKey (V.KChar 'k') [] -> do
-      let r = BL.listMoveBy (-1) $ stList g
-      B.continue $ g { stList = r }
-    V.EvKey (V.KChar 'j') [] -> do
-      let r = BL.listMoveBy 1 $ stList g
-      B.continue $ g { stList = r }
+handleEvent g (B.VtyEvent e) = do
+  g' <- case e of
+          V.EvKey (V.KChar 'k') [] -> do
+            let r = BL.listMoveBy (-1) $ stListFolder g
+            pure g { stListFolder = r }
+          V.EvKey (V.KChar 'j') [] -> do
+            let r = BL.listMoveBy 1 $ stListFolder g
+            pure g { stListFolder = r }
 
-    _ -> do
-      r <- BL.handleListEvent e (stList g)
-      B.continue $ g { stList = r }
+          _ -> do
+            r <- BL.handleListEvent e (stListFolder g)
+            pure g { stListFolder = r }
+
+  case BL.listSelectedElement (stListFolder g) of
+    Nothing ->
+      pure g { stListFile = BL.listClear (stListFile g) }
+    Just (idx, e) -> do
+      let items = Vec.fromList [""]
+      pure g { stListFile = BL.list ListFile items 1 }
+  
+  B.continue g'
 handleEvent g _ = B.continue g
 
 -- Drawing
 
 drawUI :: St -> [B.Widget Name]
 drawUI g =
-  [ B.hLimit 50 $
-    B.withBorderStyle BBS.unicodeRounded $
-    BB.borderWithLabel (B.str "menu") $
-    B.padAll 1 $
-    BL.renderList listDrawElement True (stList g)
+  [ (
+      B.hLimit 50 $
+      B.withBorderStyle BBS.unicodeRounded $
+      BB.borderWithLabel (B.str "folders") $
+      B.padAll 1 $
+      BL.renderList listDrawElement True (stListFolder g)
+    )
+    <+>
+    (
+      B.hLimit 90 $
+      B.withBorderStyle BBS.unicodeRounded $
+      BB.borderWithLabel (B.str "passwords") $
+      B.padAll 1 $
+      BL.renderList listDrawElement True (stListFile g)
+    )
   ]
 
-listDrawElement :: Bool -> Text -> B.Widget ()
+listDrawElement :: Bool -> Text -> B.Widget a
 listDrawElement _ =
   B.str . Txt.unpack
 

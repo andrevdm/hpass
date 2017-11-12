@@ -45,11 +45,11 @@ prnTree showFiles p =
   where
     go pre (PassFile name _) =
       if showFiles
-        then pre <> "   " <> name <> "\n"
+        then pre <> "  " <> name <> "\n"
         else ""
     
     go pre (PassFolder name _ ps) =
-      pre <> "   " <> name <> "\n" <> Txt.concat (go (pre <> "   ") <$> ps)
+      pre <> "  " <> name <> "\n" <> Txt.concat (go (pre <> "  ") <$> ps)
       
   
   
