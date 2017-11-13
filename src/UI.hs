@@ -91,14 +91,12 @@ handleEventFocusListFile st ev =
                   Just (_, file) -> do
                     r <- liftIO $ Lib.runProc "pass" ["show", Lib.pfPassPath file]
                     case r of
-                      Right (t,_) ->
-                        pure . Txt.lines $ t
-
-                      Left (_, o, err) ->
-                        pure . Txt.lines $ o <> err
+                      Right (t,_) -> pure . Txt.lines $ t
+                      Left (_, o, err) -> pure . Txt.lines $ o <> err
 
                   _ ->
                        pure []
+
           B.continue st { stDetail = ts }
 
 
@@ -114,6 +112,7 @@ handleEventFocusListFile st ev =
                                Left (_, o, err) -> Txt.lines $ o <> err
 
                 pure $ st { stDetail = detail }
+
             _ ->
               B.continue st
 
@@ -152,6 +151,7 @@ handleEventFocusListDir st ev =
          Just (_, dir) -> do
            let items = Vec.fromList $ Lib.pdFiles dir
            B.continue st2 { stListFile = BL.list ListFile items 1 }
+
     _ -> B.continue st
 
   
