@@ -49,7 +49,7 @@ loadPass depth' name' root =
 
     mkFile gpgPath =
       let p = Txt.pack gpgPath in
-      let p1 = Txt.drop (length root + 1) p in
+      let p1 = Txt.dropEnd 4 $ Txt.drop (length root + 1) p in
         
       PassFile { pfName = Txt.pack $ FP.takeBaseName gpgPath
                , pfPath = gpgPath
