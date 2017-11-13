@@ -8,6 +8,9 @@ import qualified Data.Text as Txt
 import qualified System.Directory as Dir
 import           System.FilePath ((</>))
 import           Data.Functor.Syntax ((<$$>))
+import qualified System.IO as IO
+import qualified System.Exit as Xit
+import qualified System.Process as Proc
 import qualified System.FilePath as FP
 
 
@@ -87,3 +90,24 @@ getFilesRec p = do
   ds <- (p </>) <$$> getDirs p
   cs <- traverse getFilesRec ds
   pure $ fs <> join cs
+
+
+
+runProc :: Text -> [Text] -> IO (Either (Int, Text, Text) (Text, Text))
+runProc appPath args = do
+  let p' = Proc.proc (Txt.unpack appPath) (Txt.unpack <$> args)
+  let p = p' { Proc.std_out = Proc.CreatePipe
+             , Proc.std_err = Proc.CreatePipe
+             }
+
+  (_, Just outp, Just errp, phandle) <- Proc.createProcess p
+
+  exitCode <- Proc.waitForProcess phandle
+  out <- IO.hGetContents outp
+  err <- IO.hGetContents errp
+
+  case exitCode of
+    Xit.ExitSuccess -> pure . Right $ (Txt.pack out, Txt.pack err)
+    Xit.ExitFailure i -> pure . Left $ (i, Txt.pack out, Txt.pack err)
+
+  
