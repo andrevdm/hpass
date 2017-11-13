@@ -57,94 +57,108 @@ app = B.App { B.appDraw = drawUI
 handleEvent :: St -> B.BrickEvent Name Event -> B.EventM Name (B.Next St)
 handleEvent st (B.VtyEvent (V.EvKey V.KEsc [])) = B.halt st
 handleEvent st (B.VtyEvent (V.EvKey (V.KChar 'q') [])) = B.halt st
-handleEvent st (B.VtyEvent e) = do
-  st' <- case BF.focusGetCurrent (stFocusRing st) of
-           Just ListFile ->
-             case e of
-                    V.EvKey (V.KChar 'k') [] -> do
-                      let r = BL.listMoveBy (-1) $ stListFile st
-                      pure st { stListFile = r
-                              , stDetail = []
-                              }
+handleEvent st (B.VtyEvent e) = 
+  case BF.focusGetCurrent (stFocusRing st) of
+    Just ListFile ->
+      case e of
+        V.EvKey (V.KChar 'k') [] -> do
+          let r = BL.listMoveBy (-1) $ stListFile st
+          B.continue st { stListFile = r
+                        , stDetail = []
+                        }
 
-                    V.EvKey (V.KChar 'j') [] -> do
-                      let r = BL.listMoveBy 1 $ stListFile st
-                      pure st { stListFile = r 
-                              , stDetail = []
-                              }
+        V.EvKey (V.KChar 'j') [] -> do
+          let r = BL.listMoveBy 1 $ stListFile st
+          B.continue st { stListFile = r 
+                        , stDetail = []
+                        }
 
-                    V.EvKey (V.KChar 'h') [] ->
-                      pure st { stFocusRing = BF.focusPrev . stFocusRing $ st 
-                              , stDetail = []
-                              }
+        V.EvKey (V.KChar 'h') [] ->
+          B.continue st { stFocusRing = BF.focusPrev . stFocusRing $ st 
+                        , stDetail = []
+                        }
 
-                    V.EvKey (V.KChar '\t') [] ->
-                      pure st { stFocusRing = BF.focusPrev . stFocusRing $ st 
-                              , stDetail = []
-                              }
+        V.EvKey (V.KChar '\t') [] ->
+          B.continue st { stFocusRing = BF.focusPrev . stFocusRing $ st 
+                        , stDetail = []
+                        }
 
-                    V.EvKey (V.KChar 'l') [] -> do
-                      ts <- case BL.listSelectedElement (stListFile st) of
-                              Just (_, file) -> do
-                                r <- liftIO $ Lib.runProc "pass" ["show", Lib.pfPassPath file]
-                                case r of
-                                  Right (t,_) ->
-                                    pure . Txt.lines $ t
+        V.EvKey (V.KChar 'l') [] -> do
+          ts <- case BL.listSelectedElement (stListFile st) of
+                  Just (_, file) -> do
+                    r <- liftIO $ Lib.runProc "pass" ["show", Lib.pfPassPath file]
+                    case r of
+                      Right (t,_) ->
+                        pure . Txt.lines $ t
 
-                                  Left (_, o, err) ->
-                                    pure . Txt.lines $ o <> err
+                      Left (_, o, err) ->
+                        pure . Txt.lines $ o <> err
 
-                              _ ->
-                                   pure []
-                      pure st { stDetail = ts }
+                  _ ->
+                       pure []
+          B.continue st { stDetail = ts }
 
-                    _ -> do
-                      r <- BL.handleListEvent e (stListFile st)
-                      pure st { stListFile = r 
-                              , stDetail = []
-                              }
 
-           Just ListDir -> do
-             st2 <- case e of
-                      V.EvKey (V.KChar 'k') [] -> do
-                        let r = BL.listMoveBy (-1) $ stListDir st
-                        pure st { stListDir = r 
-                                , stDetail = []
-                                }
+        V.EvKey (V.KChar 'e') [] ->
+          case BL.listSelectedElement (stListFile st) of
+            Just (_, file) -> 
+              B.suspendAndResume $ do
+                void $ Lib.shell "pass" ["edit", Lib.pfPassPath file]
+                r <- liftIO $ Lib.runProc "pass" ["show", Lib.pfPassPath file]
 
-                      V.EvKey (V.KChar 'j') [] -> do
-                        let r = BL.listMoveBy 1 $ stListDir st
-                        pure st { stListDir = r  
-                                , stDetail = []
-                                }
+                let detail = case r of
+                               Right (t,_) -> Txt.lines t
+                               Left (_, o, err) -> Txt.lines $ o <> err
 
-                      V.EvKey (V.KChar 'l') [] ->
-                        pure st { stFocusRing = BF.focusNext . stFocusRing $ st  
-                                , stDetail = []
-                                }
+                pure $ st { stDetail = detail }
+            _ ->
+              B.continue st
 
-                      V.EvKey (V.KChar '\t') [] ->
-                        pure st { stFocusRing = BF.focusNext . stFocusRing $ st  
-                                , stDetail = []
-                                }
+        _ -> do
+          r <- BL.handleListEvent e (stListFile st)
+          B.continue st { stListFile = r 
+                  , stDetail = []
+                    }
 
-                      _ -> do
-                        r <- BL.handleListEvent e (stListDir st)
-                        pure st { stListDir = r  
-                                , stDetail = []
-                                }
+    Just ListDir -> do
+      st2 <- case e of
+               V.EvKey (V.KChar 'k') [] -> do
+                 let r = BL.listMoveBy (-1) $ stListDir st
+                 pure st { stListDir = r 
+                         , stDetail = []
+                         }
 
-             case BL.listSelectedElement (stListDir st2) of
-                Nothing ->
-                  pure st2 { stListFile = BL.listClear (stListFile st2) }
-                Just (_, dir) -> do
-                  let items = Vec.fromList $ Lib.pdFiles dir
-                  pure st2 { stListFile = BL.list ListFile items 1 }
+               V.EvKey (V.KChar 'j') [] -> do
+                 let r = BL.listMoveBy 1 $ stListDir st
+                 pure st { stListDir = r  
+                         , stDetail = []
+                         }
 
-           _ ->
-             pure st
-  
-  B.continue st'
+               V.EvKey (V.KChar 'l') [] ->
+                 pure st { stFocusRing = BF.focusNext . stFocusRing $ st  
+                         , stDetail = []
+                         }
+
+               V.EvKey (V.KChar '\t') [] ->
+                 pure st { stFocusRing = BF.focusNext . stFocusRing $ st  
+                         , stDetail = []
+                         }
+
+               _ -> do
+                 r <- BL.handleListEvent e (stListDir st)
+                 pure st { stListDir = r  
+                         , stDetail = []
+                         }
+
+      case BL.listSelectedElement (stListDir st2) of
+         Nothing ->
+           B.continue st2 { stListFile = BL.listClear (stListFile st2) }
+         Just (_, dir) -> do
+           let items = Vec.fromList $ Lib.pdFiles dir
+           B.continue st2 { stListFile = BL.list ListFile items 1 }
+
+    _ ->
+      B.continue st
 handleEvent st _ = B.continue st
 
 -- Drawing
@@ -218,9 +232,9 @@ formatPassData ls =
       case i of
         x | x == 0 -> "0: *****"
         x | x < 10 -> show x <> ": " <> noPwd pwd s
-        _          -> "  " <> noPwd pwd s
+        _          -> "   " <> noPwd pwd s
 
     noPwd pwd s =
       if Txt.null pwd
         then s
-        else "  " <> Txt.replace pwd "*****" s
+        else Txt.replace pwd "*****" s
