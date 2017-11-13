@@ -22,7 +22,7 @@ import qualified Lib
 
 main :: IO ()
 main = do
-  ps <- Lib.loadPass 0 "\\" "/home/andre/.password-store"
+  ps <- Lib.loadPass 0 "/" "/home/andre/.password-store"
   let items = Vec.fromList $ Lib.flattenDirs ps
 
   chan <- BCh.newBChan 10
