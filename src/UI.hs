@@ -55,11 +55,26 @@ app = B.App { B.appDraw = drawUI
             }
 
 handleEvent :: St -> B.BrickEvent Name Event -> B.EventM Name (B.Next St)
-handleEvent st (B.VtyEvent (V.EvKey V.KEsc [])) = B.halt st
-handleEvent st (B.VtyEvent (V.EvKey (V.KChar 'q') [])) = B.halt st
-handleEvent st (B.VtyEvent e) = 
-  case BF.focusGetCurrent (stFocusRing st) of
-    Just ListFile ->
+handleEvent st ev = 
+  case handleEventGlobal st ev of
+    Just x ->
+      x
+    Nothing -> 
+      case BF.focusGetCurrent (stFocusRing st) of
+        Just ListFile -> handleEventFocusListFile st ev
+        Just ListDir ->  handleEventFocusListDir st ev
+        _ -> B.continue st
+
+
+handleEventGlobal :: St -> B.BrickEvent Name Event -> Maybe (B.EventM Name (B.Next St))
+handleEventGlobal st (B.VtyEvent (V.EvKey V.KEsc [])) = Just $ B.halt st
+handleEventGlobal st (B.VtyEvent (V.EvKey (V.KChar 'q') [])) = Just $ B.halt st
+handleEventGlobal _ _ = Nothing
+
+handleEventFocusListFile :: St -> B.BrickEvent Name Event -> B.EventM Name (B.Next St)
+handleEventFocusListFile st ev = 
+  case ev of
+    (B.VtyEvent e) ->
       case e of
         V.EvKey (V.KChar 'k') [] -> do
           let r = BL.listMoveBy (-1) $ stListFile st
@@ -117,10 +132,15 @@ handleEvent st (B.VtyEvent e) =
         _ -> do
           r <- BL.handleListEvent e (stListFile st)
           B.continue st { stListFile = r 
-                  , stDetail = []
-                    }
+                        , stDetail = []
+                        }
+    _ -> B.continue st
 
-    Just ListDir -> do
+
+handleEventFocusListDir :: St -> B.BrickEvent Name Event -> B.EventM Name (B.Next St)
+handleEventFocusListDir st ev = 
+  case ev of
+    (B.VtyEvent e) -> do
       st2 <- case e of
                V.EvKey (V.KChar 'k') [] -> do
                  let r = BL.listMoveBy (-1) $ stListDir st
@@ -156,48 +176,52 @@ handleEvent st (B.VtyEvent e) =
          Just (_, dir) -> do
            let items = Vec.fromList $ Lib.pdFiles dir
            B.continue st2 { stListFile = BL.list ListFile items 1 }
+    _ -> B.continue st
 
-    _ ->
-      B.continue st
-handleEvent st _ = B.continue st
-
--- Drawing
-
+  
 drawUI :: St -> [B.Widget Name]
 drawUI st =
-  [ (
-      B.hLimit 30 $ --TODO calc max width
-      B.withBorderStyle BBS.unicodeRounded $
-      BB.borderWithLabel (B.str "folders") $
-      B.padAll 1 $
-      BF.withFocusRing (stFocusRing st) (BL.renderList listDrawDir) (stListDir st)
-    )
+  [ drawListDir st
     <+>
-    (
-      B.padTop (B.Pad 1) $
-      B.padBottom (B.Pad 1) $
-      B.hLimit 50 $ --TODO calc max width across all
-      B.withBorderStyle BBS.unicodeRounded $
-      BB.borderWithLabel (B.str "passwords") $
-      B.padAll 1 $
-      BF.withFocusRing (stFocusRing st) (BL.renderList listDrawFile) (stListFile st)
-    )
+    drawListFile st
     <+>
-    (
-      if (not . null) $ stDetail st
-      then
-        B.padTop (B.Pad 8) $
-        B.padBottom (B.Pad 2) $
-        B.hLimit 120 $
-        B.vLimit 20 $
-        B.withBorderStyle BBS.unicodeRounded $
-        BB.borderWithLabel (B.str "detail") $
-        B.padAll 1 $
-        B.txt . Txt.intercalate "\n" . formatPassData $ stDetail st
-      else
-        B.emptyWidget
-    )
+    drawDetail st
   ] 
+
+drawListDir :: St -> B.Widget Name
+drawListDir st =
+  B.hLimit 30 $ --TODO calc max width
+  B.withBorderStyle BBS.unicodeRounded $
+  BB.borderWithLabel (B.str "folders") $
+  B.padAll 1 $
+  BF.withFocusRing (stFocusRing st) (BL.renderList listDrawDir) (stListDir st)
+
+  
+drawListFile :: St -> B.Widget Name
+drawListFile st =
+  B.padTop (B.Pad 1) $
+  B.padBottom (B.Pad 1) $
+  B.hLimit 50 $ --TODO calc max width across all
+  B.withBorderStyle BBS.unicodeRounded $
+  BB.borderWithLabel (B.str "passwords") $
+  B.padAll 1 $
+  BF.withFocusRing (stFocusRing st) (BL.renderList listDrawFile) (stListFile st)
+
+  
+drawDetail :: St -> B.Widget Name
+drawDetail st =
+  if (not . null) $ stDetail st
+  then
+    B.padTop (B.Pad 8) $
+    B.padBottom (B.Pad 2) $
+    B.hLimit 120 $
+    B.vLimit 20 $
+    B.withBorderStyle BBS.unicodeRounded $
+    BB.borderWithLabel (B.str "detail") $
+    B.padAll 1 $
+    B.txt . Txt.intercalate "\n" . formatPassData $ stDetail st
+  else
+    B.emptyWidget
 
 listDrawDir :: Bool -> Lib.PassDir -> B.Widget a
 listDrawDir _ d =
