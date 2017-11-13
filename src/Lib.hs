@@ -11,8 +11,9 @@ import           Data.Functor.Syntax ((<$$>))
 import qualified System.FilePath as FP
 
 
-data PassFile = PassFile { pfName :: Text,
-                           pfPath :: FilePath
+data PassFile = PassFile { pfName :: Text
+                         , pfPath :: FilePath
+                         , pfPassPath :: Text
                          } deriving (Show, Eq)
 
 data PassDir = PassDir { pdName :: Text
@@ -24,21 +25,33 @@ data PassDir = PassDir { pdName :: Text
 
 
 loadPass :: Int -> Text -> FilePath -> IO PassDir
-loadPass depth name root = do
-  entries <- (root </>) <$$> Dir.listDirectory root
-
-  files <- filterM Dir.doesFileExist entries
-  let gpgs = filter (\p -> Txt.takeEnd 4 (Txt.pack p) == ".gpg") files
-  let passFiles = (\f -> PassFile (Txt.pack $ FP.takeBaseName f) f) <$> gpgs
-
-  dirs <- filterM Dir.doesDirectoryExist entries
-  passFolders' <- traverse (\p -> loadPass (depth + 1) (Txt.pack $ FP.takeBaseName p) p) $ sort dirs
-  let passFolders = filter isValidFolder passFolders'
-  
-  pure $ PassDir name root passFiles passFolders depth
+loadPass depth' name' root = 
+  go depth' name' root
 
   where
+    go depth name atPath = do
+      entries <- (atPath </>) <$$> Dir.listDirectory atPath
+
+      files <- filterM Dir.doesFileExist entries
+      let gpgs = filter (\p -> Txt.takeEnd 4 (Txt.pack p) == ".gpg") files
+      let passFiles = mkFile <$> sort gpgs
+
+      dirs <- filterM Dir.doesDirectoryExist entries
+      passFolders' <- traverse (\p -> go (depth + 1) (Txt.pack $ FP.takeBaseName p) p) $ sort dirs
+      let passFolders = filter isValidFolder passFolders'
+      
+      pure $ PassDir name atPath passFiles passFolders depth
+
     isValidFolder p = pdName p /= ".git" && length (pdChildren p) + length (pdFiles p) > 0
+
+    mkFile gpgPath =
+      let p = Txt.pack gpgPath in
+      let p1 = Txt.drop (length root + 1) p in
+        
+      PassFile { pfName = Txt.pack $ FP.takeBaseName gpgPath
+               , pfPath = gpgPath
+               , pfPassPath = p1
+               }
 
 flattenDirs :: PassDir -> [PassDir]
 flattenDirs p =

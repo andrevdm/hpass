@@ -86,7 +86,7 @@ handleEvent st (B.VtyEvent e) = do
                     V.EvKey (V.KChar 'l') [] -> do
                       let ts = case BL.listSelectedElement (stListFile st) of
                                  Just (_, file) ->
-                                   [Lib.pfName file]
+                                   [Lib.pfPassPath file]
 
                                  _ ->
                                    []
@@ -197,3 +197,6 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.bl
                               , (BL.listSelectedFocusedAttr, V.black `B.on` V.yellow)
                               , (customAttr                , B.fg V.cyan)
                               ]
+
+
+
