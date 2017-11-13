@@ -76,18 +76,6 @@ handleEventFocusListFile st ev =
   case ev of
     (B.VtyEvent e) ->
       case e of
-        V.EvKey (V.KChar 'k') [] -> do
-          let r = BL.listMoveBy (-1) $ stListFile st
-          B.continue st { stListFile = r
-                        , stDetail = []
-                        }
-
-        V.EvKey (V.KChar 'j') [] -> do
-          let r = BL.listMoveBy 1 $ stListFile st
-          B.continue st { stListFile = r 
-                        , stDetail = []
-                        }
-
         V.EvKey (V.KChar 'h') [] ->
           B.continue st { stFocusRing = BF.focusPrev . stFocusRing $ st 
                         , stDetail = []
@@ -130,7 +118,7 @@ handleEventFocusListFile st ev =
               B.continue st
 
         _ -> do
-          r <- BL.handleListEvent e (stListFile st)
+          r <- BL.handleListEventVi (const pure) e (stListFile st)
           B.continue st { stListFile = r 
                         , stDetail = []
                         }
@@ -142,18 +130,6 @@ handleEventFocusListDir st ev =
   case ev of
     (B.VtyEvent e) -> do
       st2 <- case e of
-               V.EvKey (V.KChar 'k') [] -> do
-                 let r = BL.listMoveBy (-1) $ stListDir st
-                 pure st { stListDir = r 
-                         , stDetail = []
-                         }
-
-               V.EvKey (V.KChar 'j') [] -> do
-                 let r = BL.listMoveBy 1 $ stListDir st
-                 pure st { stListDir = r  
-                         , stDetail = []
-                         }
-
                V.EvKey (V.KChar 'l') [] ->
                  pure st { stFocusRing = BF.focusNext . stFocusRing $ st  
                          , stDetail = []
@@ -165,7 +141,7 @@ handleEventFocusListDir st ev =
                          }
 
                _ -> do
-                 r <- BL.handleListEvent e (stListDir st)
+                 r <- BL.handleListEventVi (const pure) e (stListDir st)
                  pure st { stListDir = r  
                          , stDetail = []
                          }
