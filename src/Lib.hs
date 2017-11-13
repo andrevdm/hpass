@@ -111,3 +111,15 @@ runProc appPath args = do
     Xit.ExitFailure i -> pure . Left $ (i, Txt.pack out, Txt.pack err)
 
   
+shell :: Text -> [Text] -> IO (Either Int ())
+shell appPath args = do
+  let p = Proc.proc (Txt.unpack appPath) (Txt.unpack <$> args)
+
+  (_, _, _, phandle) <- Proc.createProcess p
+  exitCode <- Proc.waitForProcess phandle
+
+  case exitCode of
+    Xit.ExitSuccess -> pure $ Right ()
+    Xit.ExitFailure i -> pure $ Left i  
+
+  
