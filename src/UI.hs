@@ -6,10 +6,12 @@ module UI where
 import           Protolude
 import qualified Data.Text as Txt
 import qualified Data.Vector as Vec
-import           Brick ((<+>))
+import           Brick ((<+>), (<=>))
 import qualified Brick as B
 import qualified Brick.BChan as BCh
 import qualified Brick.Focus as BF
+import qualified Brick.Markup as BM
+import           Brick.Markup ((@?))
 import qualified Brick.AttrMap as BA
 import qualified Brick.Widgets.List as BL
 import qualified Brick.Widgets.Border as BB
@@ -175,9 +177,9 @@ drawListDir st =
   
 drawListFile :: St -> B.Widget Name
 drawListFile st =
+  B.hLimit 50 $ --TODO calc max width across all
   B.padTop (B.Pad 1) $
   B.padBottom (B.Pad 1) $
-  B.hLimit 50 $ --TODO calc max width across all
   B.withBorderStyle BBS.unicodeRounded $
   BB.borderWithLabel (B.str "passwords") $
   B.padAll 1 $
@@ -188,53 +190,66 @@ drawDetail :: St -> B.Widget Name
 drawDetail st =
   if (not . null) $ stDetail st
   then
+    B.hLimit 80 $
     B.padTop (B.Pad 8) $
     B.padBottom (B.Pad 2) $
-    B.hLimit 120 $
     B.vLimit 20 $
     B.withBorderStyle BBS.unicodeRounded $
     BB.borderWithLabel (B.str "detail") $
     B.padAll 1 $
-    B.txt . Txt.intercalate "\n" . formatPassData $ stDetail st
+    formatPassData $ stDetail st
   else
     B.emptyWidget
+
 
 listDrawDir :: Bool -> Lib.PassDir -> B.Widget a
 listDrawDir _ d =
   B.str . Txt.unpack $ Txt.replicate (Lib.pdDepth d) " " <> Lib.pdName d
+
 
 listDrawFile :: Bool -> Lib.PassFile -> B.Widget a
 listDrawFile _ f =
   B.str . Txt.unpack $ Lib.pfName f
 
 
+formatPassData :: [Text] -> B.Widget Name
+formatPassData ls =
+  let pwd = case take 1 ls of
+              [a] -> a
+              _ -> "" in
+    
+  let ms = zipWith (fmt pwd) [0,1..] ls in
+  foldl' (<=>) B.emptyWidget ms
+
+  where
+    fmt :: Text -> Int -> Text -> B.Widget Name
+    fmt pwd i s =
+      case i of
+        x | x == 0 -> BM.markup $ ("0"    @? "detailNum") <> ": " <> ("*****" @? "detailData")
+        x | x < 10 -> BM.markup $ (show x @? "detailNum") <> ": " <> keyValue (noPwd pwd s)
+        _          -> BM.markup $ ("   "  @? "detailNum") <> keyValue (noPwd pwd s)
+
+    keyValue s =
+      case Txt.breakOn ":" s of
+        (v, "") -> v @? "detailData"
+        (k, v) -> (k @? "detailKey") <> ": " <> (v @? "detailData")
+  
+    noPwd pwd s =
+      if Txt.null pwd
+        then s
+        else Txt.replace pwd "*****" s
+
+
 customAttr :: BA.AttrName
 customAttr = BL.listSelectedAttr <> "custom"
+
 
 theMap :: BA.AttrMap
 theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.blue)
                               , (BL.listSelectedAttr       , V.blue  `B.on` V.white)
                               , (BL.listSelectedFocusedAttr, V.black `B.on` V.yellow)
                               , (customAttr                , B.fg V.cyan)
+                              , ("detailNum"               , B.fg V.red)
+                              , ("detailData"              , B.fg V.yellow)
+                              , ("detailKey"               , B.fg V.blue)
                               ]
-
-formatPassData :: [Text] -> [Text]
-formatPassData ls =
-  let pwd = case take 1 ls of
-              [a] -> a
-              _ -> "" in
-    
-  zipWith (fmt pwd) [0,1..] ls
-
-  where
-    fmt :: Text -> Int -> Text -> Text
-    fmt pwd i s =
-      case i of
-        x | x == 0 -> "0: *****"
-        x | x < 10 -> show x <> ": " <> noPwd pwd s
-        _          -> "   " <> noPwd pwd s
-
-    noPwd pwd s =
-      if Txt.null pwd
-        then s
-        else Txt.replace pwd "*****" s
