@@ -84,12 +84,18 @@ handleEvent st (B.VtyEvent e) = do
                               }
 
                     V.EvKey (V.KChar 'l') [] -> do
-                      let ts = case BL.listSelectedElement (stListFile st) of
-                                 Just (_, file) ->
-                                   [Lib.pfPassPath file]
+                      ts <- case BL.listSelectedElement (stListFile st) of
+                              Just (_, file) -> do
+                                r <- liftIO $ Lib.runProc "pass" ["show", Lib.pfPassPath file]
+                                case r of
+                                  Right (t,_) ->
+                                    pure . Txt.lines $ t
 
-                                 _ ->
-                                   []
+                                  Left (_, o, err) ->
+                                    pure . Txt.lines $ o <> err
+
+                              _ ->
+                                   pure []
                       pure st { stDetail = ts }
 
                     _ -> do
@@ -173,7 +179,7 @@ drawUI st =
         B.withBorderStyle BBS.unicodeRounded $
         BB.borderWithLabel (B.str "detail") $
         B.padAll 1 $
-        B.txt . Txt.intercalate "\n" $ stDetail st
+        B.txt . Txt.intercalate "\n" . formatPassData $ stDetail st
       else
         B.emptyWidget
     )
@@ -198,5 +204,23 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.bl
                               , (customAttr                , B.fg V.cyan)
                               ]
 
+formatPassData :: [Text] -> [Text]
+formatPassData ls =
+  let pwd = case take 1 ls of
+              [a] -> a
+              _ -> "" in
+    
+  zipWith (fmt pwd) [0,1..] ls
 
+  where
+    fmt :: Text -> Int -> Text -> Text
+    fmt pwd i s =
+      case i of
+        x | x == 0 -> "0: *****"
+        x | x < 10 -> show x <> ": " <> noPwd pwd s
+        _          -> "  " <> noPwd pwd s
 
+    noPwd pwd s =
+      if Txt.null pwd
+        then s
+        else "  " <> Txt.replace pwd "*****" s
