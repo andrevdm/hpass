@@ -11,7 +11,6 @@ import           Protolude
 import           Control.Lens ((^.), (.~))
 import           Control.Lens.TH (makeLenses)
 import qualified Data.Text as Txt
--- import qualified Data.Vector as Vec
 import           Control.Monad.Free.TH
 import           Control.Monad.Free
 --import           Control.Monad.Free.Church
@@ -32,18 +31,19 @@ data AppState ui = AppState { _stPassRoot :: Lib.PassDir
                             , _stDetail :: [DetailLine]
                             , _stFocus :: Name
                             , _stUi :: ui
+                            , _stDebug :: Text
                             }
 
 makeLenses ''AppState
 
-data ActionF ui next = Halt
-                     | GetSelectedDir (Maybe Lib.PassDir -> next)
-                     | GetSelectedFile (Maybe Lib.PassFile -> next)
+data ActionF ui next = Halt (AppState ui)
+                     | GetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
+                     | GetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
                      | GetPassDetail Lib.PassFile (Either Text Text -> next)
                      | LogError Text next
-                     | EditFile Lib.PassFile next
-                     | ClearFiles next
-                     | ShowFiles [Lib.PassFile] next
+                     | EditFile (AppState ui) Lib.PassFile next
+                     | ClearFiles (AppState ui) (AppState ui -> next)
+                     | ShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
                      | RunBaseHandler (AppState ui) (AppState ui -> next)
                      deriving (Functor)
 
@@ -55,8 +55,8 @@ type Action ui = Free (ActionF ui)
 handleKeyPress :: AppState ui -> (K.Key, [K.Modifier]) -> Action ui (AppState ui)
 handleKeyPress st (key, ms) =
   case key of
-    K.KEsc      -> halt
-    K.KChar 'q' -> halt
+    K.KEsc      -> halt st
+    K.KChar 'q' -> halt st
     _ ->
       case st ^. stFocus of
         FoldersControl -> handleFoldersKey st (key, ms)
@@ -71,13 +71,9 @@ handleFoldersKey st (key, _) = do
            K.KLeft      -> focusFile
            _ -> runBaseHandler st
 
-  getSelectedDir >>= \case
-    Nothing -> do
-      clearFiles
-      pure st'
-    Just d -> do
-      showFiles $ Lib.pdFiles d
-      pure st'
+  getSelectedDir st' >>= \case
+    Nothing -> clearFiles st'
+    Just d -> showFiles st' $ Lib.pdFiles d
 
   where
     focusFile = pure $ st & stFocus .~ FilesControl
@@ -92,7 +88,7 @@ handleFilesKey st (key, _) =
     K.KRight     -> focusFolder
 
     K.KChar 'l'  -> 
-      getSelectedFile >>= \case
+      getSelectedFile st >>= \case
         Nothing -> pure st
         Just f ->
           getPassDetail f >>= \case
@@ -103,10 +99,10 @@ handleFilesKey st (key, _) =
               pure $ st & stDetail .~ parseDetail d
 
     K.KChar 'e' ->
-      getSelectedFile >>= \case
+      getSelectedFile st >>= \case
         Nothing -> pure st
         Just f -> do
-          editFile f
+          editFile st f
           getPassDetail f >>= \case
             Right d ->
               pure $ st & stDetail .~ parseDetail d

@@ -13,14 +13,12 @@ import qualified Data.Vector as Vec
 import           Brick ((<+>), (<=>))
 import qualified Brick as B
 import qualified Brick.BChan as BCh
-import qualified Brick.Focus as BF
 import qualified Brick.Markup as BM
 import           Brick.Markup ((@?))
 import qualified Brick.AttrMap as BA
 import qualified Brick.Widgets.List as BL
 import qualified Brick.Widgets.Border as BB
 import qualified Brick.Widgets.Border.Style as BBS
-import qualified Control.Monad.Free as Fr
 import           Control.Monad.Free (Free(..))
 --import           Control.Monad.Free.Church as Fr
 import qualified Graphics.Vty as V
@@ -55,6 +53,7 @@ main = do
                          , Ctrl._stUi = BrickState { _bListDir = BL.list ListDir items 1
                                                    , _bListFile = BL.list ListFile Vec.empty 1
                                                    }
+                         , Ctrl._stDebug = "debug...."
                          }
           
   void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
@@ -72,7 +71,7 @@ handleEvent st ev =
   case ev of
     (B.VtyEvent ve@(V.EvKey k ms)) -> do
       let a = Ctrl.handleKeyPress st (k, ms)
-      runPassDsl st (handleBaseEvent ve) a
+      runPassDsl (handleBaseEvent ve) a
       
     _ -> B.continue st
 
@@ -92,11 +91,13 @@ handleEvent st ev =
 
 drawUI :: UIState -> [B.Widget Name]
 drawUI st =
-  [ drawListDir st
+  [ (drawListDir st
     <+>
     drawListFile st
     <+>
-    drawDetail st
+    drawDetail st)
+    <=>
+    (B.txt $ st ^. Ctrl.stDebug)
   ] 
 
 drawListDir :: UIState -> B.Widget Name
@@ -180,51 +181,48 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.bl
 
 ------------------------
 
-runPassDsl :: UIState
-           -> (UIState -> B.EventM Name UIState)
+runPassDsl :: (UIState -> B.EventM Name UIState)
            -> Ctrl.Action BrickState (Ctrl.AppState BrickState)
            -> B.EventM Name (B.Next UIState)
-runPassDsl st_ h a =
+runPassDsl h a =
   case a of
-    (Pure r) ->
-      B.continue r
+    (Pure st) ->
+      B.continue st
 
-    (Free Ctrl.Halt) ->
-      B.halt st_
+    (Free (Ctrl.Halt st)) ->
+      B.halt st
 
-    (Free (Ctrl.ClearFiles n)) -> do
-      let st' = st_ & (Ctrl.stUi . bListFile) %~ BL.listClear
-      runPassDsl st' h n
+    (Free (Ctrl.ClearFiles st n)) -> do
+      let st' = st & (Ctrl.stUi . bListFile) %~ BL.listClear
+      runPassDsl h (n st')
     
-    (Free (Ctrl.ShowFiles fs n)) -> do
+    (Free (Ctrl.ShowFiles st fs n)) -> do
       let items = Vec.fromList fs
-      let st' = st_ & (Ctrl.stUi . bListFile) .~ BL.list ListFile items 1
-      runPassDsl st' h n
+      let st' = st & (Ctrl.stUi . bListFile) .~ BL.list ListFile items 1
+      runPassDsl h (n st')
 
     (Free (Ctrl.RunBaseHandler st n)) -> do
       st' <- h st
-      runPassDsl st' h (n st')
+      runPassDsl h (n st')
 
     (Free (Ctrl.LogError _ n)) -> 
-      runPassDsl st_ h n
+      runPassDsl h n
 
-    (Free (Ctrl.GetSelectedDir n)) -> do
-      let dir = case BL.listSelectedElement (st_ ^. (Ctrl.stUi . bListDir)) of
+    (Free (Ctrl.GetSelectedDir st n)) -> do
+      let dir = case BL.listSelectedElement (st ^. (Ctrl.stUi . bListDir)) of
                   Just (_, d) -> Just d
                   Nothing -> Nothing
-      runPassDsl st_ h (n dir)
+      runPassDsl h (n dir)
 
-    (Free (Ctrl.GetSelectedFile n)) -> do
-      let file = case BL.listSelectedElement (st_ ^. (Ctrl.stUi . bListFile)) of
+    (Free (Ctrl.GetSelectedFile st n)) -> do
+      let file = case BL.listSelectedElement (st ^. (Ctrl.stUi . bListFile)) of
                    Just (_, f) -> Just f
                    Nothing -> Nothing
-      runPassDsl st_ h (n file)
+      runPassDsl h (n file)
 
-    (Free (Ctrl.GetPassDetail file n)) ->
-      runPassDsl st_ h (n $ Left "TODO")
+    (Free (Ctrl.GetPassDetail _ n)) ->
+      runPassDsl h (n $ Left "TODO")
 
-    (Free (Ctrl.EditFile file n)) ->
-      runPassDsl st_ h n 
+    (Free (Ctrl.EditFile _ _ n)) ->
+      runPassDsl h n 
 
--- GetPassDetail Lib.PassFile (Either Text Text -> next)
--- EditFile Lib.PassFile next
