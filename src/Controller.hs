@@ -13,7 +13,8 @@ import           Control.Lens.TH (makeLenses)
 import qualified Data.Text as Txt
 -- import qualified Data.Vector as Vec
 import           Control.Monad.Free.TH
-import           Control.Monad.Free.Church
+import           Control.Monad.Free
+--import           Control.Monad.Free.Church
 import qualified Graphics.Vty.Input.Events as K
 
 import qualified Lib
@@ -47,7 +48,8 @@ data ActionF ui next = Halt
                      deriving (Functor)
 
 makeFree ''ActionF
-type Action ui = F (ActionF ui)
+--type Action ui = F (ActionF ui)
+type Action ui = Free (ActionF ui)
 
 
 handleKeyPress :: AppState ui -> (K.Key, [K.Modifier]) -> Action ui (AppState ui)
