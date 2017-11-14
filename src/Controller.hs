@@ -44,6 +44,7 @@ data ActionF ui next = Halt (AppState ui)
                      | ClearFiles (AppState ui) (AppState ui -> next)
                      | ShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
                      | RunBaseHandler (AppState ui) (AppState ui -> next)
+                     | ClipLine Int Lib.PassFile (Either Int () -> next)
                      -- | Note that ExternalEditFile terminates the DSL
                      | ExternEditFile Lib.PassFile (Either Text Text -> AppState ui)
                      deriving (Functor)
@@ -109,18 +110,15 @@ handleFilesKey st (key, _) =
                                             & stDebug .~ e
                            )
 
-    -- V.EvKey (V.KChar c) [] | (c `elem` ("0123456789" :: [Char])) -> do
-    --    case readMaybe [c] :: Maybe Int of
-    --      Just i -> 
-    --        case take 1 . drop i $ stDetail st of
-    --          [""] -> B.continue st
-    --          [s] -> do
-    --            -- liftIO $ Lib.shell "pass" ["show", "--clip=" <> show i, stListFile st]
-    --            B.continue st
-    --          _ -> B.continue st
-    --      _ ->
-    --        B.continue st
-
+    K.KChar c | (c `elem` ("0123456789" :: [Char])) ->
+      getSelectedFile st >>= \case
+        Nothing -> pure st
+        Just f -> case readMaybe [c] :: Maybe Int of
+                    Just i -> clipLine (i + 1) f >>= \case
+                      Right _ -> pure $ st & stDebug .~ "copied: " <> show i
+                      Left e -> pure $ st & stDebug .~ "error: " <> show e
+                    Nothing -> pure st
+          
     _ -> runBaseHandler $ st & stDetail .~ []
 
   where

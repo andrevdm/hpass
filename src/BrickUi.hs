@@ -217,6 +217,13 @@ runPassDsl h a =
                    Nothing -> Nothing
       runPassDsl h (n file)
 
+    (Free (Ctrl.ClipLine line file n)) -> do
+      r <- liftIO $ Lib.runProc "pass" ["show", "--clip=" <> show line, Lib.pfPassPath file]
+      let txt = case r of
+                  Right _ -> Right ()
+                  Left (e, _, _) -> Left e
+      runPassDsl h $ n txt
+
     (Free (Ctrl.GetPassDetail file n)) -> do
       txt <- liftIO $ runPassShow file
       runPassDsl h $ n txt
