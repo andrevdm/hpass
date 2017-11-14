@@ -60,6 +60,7 @@ flattenDirs :: PassDir -> [PassDir]
 flattenDirs p =
   [p] <> (flattenDirs =<< pdChildren p)
 
+
 prnTree :: Bool -> PassDir -> Text
 prnTree showFiles =
   go "" 

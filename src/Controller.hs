@@ -41,10 +41,11 @@ data ActionF ui next = Halt (AppState ui)
                      | GetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
                      | GetPassDetail Lib.PassFile (Either Text Text -> next)
                      | LogError Text next
-                     | EditFile (AppState ui) Lib.PassFile next
                      | ClearFiles (AppState ui) (AppState ui -> next)
                      | ShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
                      | RunBaseHandler (AppState ui) (AppState ui -> next)
+                     -- | Note that ExternalEditFile terminates the DSL
+                     | ExternEditFile Lib.PassFile (Either Text Text -> AppState ui)
                      deriving (Functor)
 
 makeFree ''ActionF
@@ -68,7 +69,7 @@ handleFoldersKey st (key, _) = do
   st' <- case key of
            K.KChar 'l'  -> focusFile
            K.KChar '\t' -> focusFile
-           K.KLeft      -> focusFile
+           K.KRight     -> focusFile
            _ -> runBaseHandler st
 
   getSelectedDir st' >>= \case
@@ -85,7 +86,7 @@ handleFilesKey st (key, _) =
   case key of
     K.KChar 'h'  -> focusFolder
     K.KChar '\t' -> focusFolder
-    K.KRight     -> focusFolder
+    K.KLeft      -> focusFolder
 
     K.KChar 'l'  -> 
       getSelectedFile st >>= \case
@@ -101,16 +102,14 @@ handleFilesKey st (key, _) =
     K.KChar 'e' ->
       getSelectedFile st >>= \case
         Nothing -> pure st
-        Just f -> do
-          editFile st f
-          getPassDetail f >>= \case
-            Right d ->
-              pure $ st & stDetail .~ parseDetail d
-            Left e -> do
-              logError e
-              pure $ st & stDetail .~ []
+        Just f -> 
+          externEditFile f (\case
+                               Right d -> st & stDetail .~ parseDetail d
+                               Left e -> st & stDetail .~ []
+                                            & stDebug .~ e
+                           )
 
-    _ -> runBaseHandler st
+    _ -> runBaseHandler $ st & stDetail .~ []
 
   where
     focusFolder = pure $ st & stFocus .~ FoldersControl

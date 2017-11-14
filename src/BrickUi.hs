@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE LambdaCase #-}
 
 module BrickUi where
 
@@ -81,24 +82,20 @@ handleEvent st ev =
       case st ^. Ctrl.stFocus of
         Ctrl.FilesControl -> do
           r <- BL.handleListEventVi (const pure) ve $ st' ^. (Ctrl.stUi . bListFile)
-          pure $ st & (Ctrl.stUi . bListFile) .~ r
+          pure $ st' & (Ctrl.stUi . bListFile) .~ r
 
         Ctrl.FoldersControl -> do
           r <- BL.handleListEventVi (const pure) ve $ st' ^. (Ctrl.stUi . bListDir)
-          pure $ st & (Ctrl.stUi . bListDir) .~ r
+          pure $ st' & (Ctrl.stUi . bListDir) .~ r
   
-
 
 drawUI :: UIState -> [B.Widget Name]
 drawUI st =
-  [ (drawListDir st
-    <+>
-    drawListFile st
-    <+>
-    drawDetail st)
+  [ (drawListDir st <+> drawListFile st <+> drawDetail st)
     <=>
-    (B.txt $ st ^. Ctrl.stDebug)
+    B.txt (st ^. Ctrl.stDebug)
   ] 
+
 
 drawListDir :: UIState -> B.Widget Name
 drawListDir st =
@@ -220,9 +217,23 @@ runPassDsl h a =
                    Nothing -> Nothing
       runPassDsl h (n file)
 
-    (Free (Ctrl.GetPassDetail _ n)) ->
-      runPassDsl h (n $ Left "TODO")
+    (Free (Ctrl.GetPassDetail file n)) -> do
+      txt <- liftIO $ runPassShow file
+      runPassDsl h $ n txt
 
-    (Free (Ctrl.EditFile _ _ n)) ->
-      runPassDsl h n 
+    (Free (Ctrl.ExternEditFile file fn)) ->
+      B.suspendAndResume . liftIO $ do
+        void $ Lib.shell "pass" ["edit", Lib.pfPassPath file]
 
+        runPassShow file >>= \case
+          Left e -> pure . fn . Left $ "Error getting data: " <> show e
+          Right p -> pure . fn . Right $ p
+
+  where
+    runPassShow :: Lib.PassFile -> IO (Either Text Text)
+    runPassShow file = do
+      r <- Lib.runProc "pass" ["show", Lib.pfPassPath file]
+
+      pure $ case r of
+               Right (t, _) -> Right t
+               Left (_, o, err) -> Left $ o <> "\n\n" <> err
