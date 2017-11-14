@@ -109,6 +109,18 @@ handleFilesKey st (key, _) =
                                             & stDebug .~ e
                            )
 
+    -- V.EvKey (V.KChar c) [] | (c `elem` ("0123456789" :: [Char])) -> do
+    --    case readMaybe [c] :: Maybe Int of
+    --      Just i -> 
+    --        case take 1 . drop i $ stDetail st of
+    --          [""] -> B.continue st
+    --          [s] -> do
+    --            -- liftIO $ Lib.shell "pass" ["show", "--clip=" <> show i, stListFile st]
+    --            B.continue st
+    --          _ -> B.continue st
+    --      _ ->
+    --        B.continue st
+
     _ -> runBaseHandler $ st & stDetail .~ []
 
   where

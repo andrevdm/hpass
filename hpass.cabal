@@ -17,7 +17,6 @@ library
   ghc-options:         -Wall -Wincomplete-uni-patterns -Wincomplete-record-updates -Wimplicit-prelude
   hs-source-dirs:      src
   exposed-modules:     Lib
-                     , UI
                      , BrickUi
                      , Controller
   build-depends:       base >= 4.7 && < 5
