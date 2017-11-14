@@ -55,8 +55,8 @@ type Action ui = Free (ActionF ui)
 handleKeyPress :: AppState ui -> (K.Key, [K.Modifier]) -> Action ui (AppState ui)
 handleKeyPress st (key, ms) =
   case key of
-    K.KChar 'q' ->
-      halt
+    K.KEsc      -> halt
+    K.KChar 'q' -> halt
     _ ->
       case st ^. stFocus of
         FoldersControl -> handleFoldersKey st (key, ms)

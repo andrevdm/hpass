@@ -92,11 +92,91 @@ handleEvent st ev =
 
 drawUI :: UIState -> [B.Widget Name]
 drawUI st =
-  [] 
+  [ drawListDir st
+    <+>
+    drawListFile st
+    <+>
+    drawDetail st
+  ] 
+
+drawListDir :: UIState -> B.Widget Name
+drawListDir st =
+  B.hLimit 30 $ --TODO calc max width
+  B.withBorderStyle BBS.unicodeRounded $
+  BB.borderWithLabel (B.str "folders") $
+  B.padAll 1 $
+  BL.renderList listDrawDir ((st ^. Ctrl.stFocus) == Ctrl.FoldersControl) (st ^. (Ctrl.stUi . bListDir))
 
   
+drawListFile :: UIState -> B.Widget Name
+drawListFile st =
+  B.hLimit 50 $ --TODO calc max width across all
+  B.padTop (B.Pad 1) $
+  B.padBottom (B.Pad 1) $
+  B.withBorderStyle BBS.unicodeRounded $
+  BB.borderWithLabel (B.str "passwords") $
+  B.padAll 1 $
+  BL.renderList listDrawFile ((st ^. Ctrl.stFocus) == Ctrl.FilesControl) (st ^. (Ctrl.stUi . bListFile))
+
+  
+drawDetail :: UIState -> B.Widget Name
+drawDetail st =
+  if (not . null) $ st ^. Ctrl.stDetail
+  then
+    B.hLimit 80 $
+    B.padTop (B.Pad 8) $
+    B.padBottom (B.Pad 2) $
+    B.vLimit 20 $
+    B.withBorderStyle BBS.unicodeRounded $
+    BB.borderWithLabel (B.str "detail") $
+    B.padAll 1 $
+    formatPassData $ st ^. Ctrl.stDetail
+  else
+    B.emptyWidget
+
+
+formatPassData :: [Ctrl.DetailLine] -> B.Widget a
+formatPassData ls =
+  let ms = zipWith format [0,1..] ls in
+  foldl' (<=>) B.emptyWidget ms
+
+  where
+    format :: Int -> Ctrl.DetailLine -> B.Widget a
+    format i (Ctrl.DetailLine _ k v) =
+      case i of
+        x | x == 0 -> BM.markup $ ("0"    @? "detailNum") <> ": " <> ("*****" @? "detailData")
+        x | x < 10 -> BM.markup $ (show x @? "detailNum") <> ": " <> keyValue k v
+        _          -> BM.markup $ ("   "  @? "detailNum") <> keyValue k v
+
+    keyValue k v =
+      if Txt.null k
+        then v @? "detailData"
+        else (k @? "detailKey") <> ": " <> (v @? "detailData")
+
+
+listDrawDir :: Bool -> Lib.PassDir -> B.Widget a
+listDrawDir _ d =
+  B.str . Txt.unpack $ Txt.replicate (Lib.pdDepth d) " " <> Lib.pdName d
+
+
+listDrawFile :: Bool -> Lib.PassFile -> B.Widget a
+listDrawFile _ f =
+  B.str . Txt.unpack $ Lib.pfName f
+
+  
+customAttr :: BA.AttrName
+customAttr = BL.listSelectedAttr <> "custom"
+
+
 theMap :: BA.AttrMap
-theMap = BA.attrMap V.defAttr []
+theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.blue)
+                              , (BL.listSelectedAttr       , V.blue  `B.on` V.white)
+                              , (BL.listSelectedFocusedAttr, V.black `B.on` V.yellow)
+                              , (customAttr                , B.fg V.cyan)
+                              , ("detailNum"               , B.fg V.red)
+                              , ("detailData"              , B.fg V.yellow)
+                              , ("detailKey"               , B.fg V.blue)
+                              ]
 
 ------------------------
 
