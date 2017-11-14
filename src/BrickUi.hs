@@ -1,9 +1,13 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module BrickUi where
 
 import           Protolude
+import           Control.Lens ((^.), (.~))
+import           Control.Lens.TH (makeLenses)
 import qualified Data.Text as Txt
 import qualified Data.Vector as Vec
 import           Brick ((<+>), (<=>))
@@ -27,11 +31,14 @@ data Name = ListDir
           
 data Event = Event
 
-data UIState = UIState { usState :: Ctrl.AppState
-                       , usListDir :: BL.List Name Lib.PassDir
-                       , usListFile :: BL.List Name Lib.PassFile
-                       , usFocusRing :: BF.FocusRing Name
-                       }
+data BrickState = BrickState { _bListDir :: BL.List Name Lib.PassDir
+                             , _bListFile :: BL.List Name Lib.PassFile
+                             , _bFocusRing :: BF.FocusRing Name
+                             }
+
+makeLenses ''BrickState
+
+type UIState = Ctrl.AppState BrickState
 
 main :: IO ()
 main = do
@@ -40,13 +47,14 @@ main = do
 
   chan <- BCh.newBChan 10
 
-  let st = UIState { usState = Ctrl.AppState { Ctrl.stPassRoot = ps
-                                             , Ctrl.stDetail = []
-                                             }
-                   , usListDir = BL.list ListDir items 1
-                   , usListFile = BL.list ListFile Vec.empty 1
-                   , usFocusRing = BF.focusRing [ListDir, ListFile]
-                   }
+  let st = Ctrl.AppState { Ctrl._stPassRoot = ps
+                         , Ctrl._stDetail = []
+                         , Ctrl._stFocus = Ctrl.FoldersControl
+                         , Ctrl._stUi = BrickState { _bListDir = BL.list ListDir items 1
+                                                   , _bListFile = BL.list ListFile Vec.empty 1
+                                                   , _bFocusRing = BF.focusRing [ListDir, ListFile]
+                                                   }
+                         }
           
   void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
 
@@ -62,10 +70,10 @@ handleEvent :: UIState -> B.BrickEvent Name Event -> B.EventM Name (B.Next UISta
 handleEvent st ev = do
   case ev of
     --(B.VtyEvent (V.EvKey k ms)) -> do
-      --let us = Ctrl.handleKeyPress (usState st) (k, ms) 
-      --let st' = st { usState = us } 
-      --B.continue st'
-    --(B.AppEvent a) -> B.continue st
+    --  let st' = Ctrl.handleKeyPress baseHandler st (k, ms) 
+    --   --let st' = st { usState = us } 
+    --  B.continue st
+    -- (B.AppEvent a) -> B.continue st
     _ -> B.continue st
   
 

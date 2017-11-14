@@ -8,11 +8,12 @@
 module Controller where
 
 import           Protolude
+import           Control.Lens ((^.), (.~))
+import           Control.Lens.TH (makeLenses)
 import qualified Data.Text as Txt
 -- import qualified Data.Vector as Vec
 import           Control.Monad.Free.TH
 import           Control.Monad.Free.Church
---import           Control.Monad.Free
 import qualified Graphics.Vty.Input.Events as K
 
 import qualified Lib
@@ -26,44 +27,47 @@ data Name = FoldersControl
           | FilesControl
           deriving (Show, Eq)
 
-data AppState = AppState { stPassRoot :: Lib.PassDir
-                         , stDetail :: [DetailLine]
-                         , stFocus :: Name
-                         }
+data AppState ui = AppState { _stPassRoot :: Lib.PassDir
+                            , _stDetail :: [DetailLine]
+                            , _stFocus :: Name
+                            , _stUi :: ui
+                            }
 
-data ActionF next = Halt
-                  | GetSelectedDir (Maybe Lib.PassDir -> next)
-                  | GetSelectedFile (Maybe Lib.PassFile -> next)
-                  | GetPassDetail Lib.PassFile (Either Text Text -> next)
-                  | LogError Text next
-                  | EditFile Lib.PassFile next
-                  | ClearFiles next
-                  | ShowFiles [Lib.PassFile] next
-                  deriving (Functor)
+makeLenses ''AppState
+
+data ActionF ui next = Halt
+                     | GetSelectedDir (Maybe Lib.PassDir -> next)
+                     | GetSelectedFile (Maybe Lib.PassFile -> next)
+                     | GetPassDetail Lib.PassFile (Either Text Text -> next)
+                     | LogError Text next
+                     | EditFile Lib.PassFile next
+                     | ClearFiles next
+                     | ShowFiles [Lib.PassFile] next
+                     | RunBaseHandler (AppState ui) (AppState ui -> next)
+                     deriving (Functor)
 
 makeFree ''ActionF
---type Action = Free ActionF
-type Action = F ActionF
+type Action ui = F (ActionF ui)
 
 
-handleKeyPress :: (AppState -> K.Key -> AppState) -> AppState -> (K.Key, [K.Modifier]) -> Action AppState
-handleKeyPress baseHandler st (key, ms) =
+handleKeyPress :: AppState ui -> (K.Key, [K.Modifier]) -> Action ui (AppState ui)
+handleKeyPress st (key, ms) =
   case key of
     K.KChar 'q' ->
       halt
     _ ->
-      case stFocus st of
-        FoldersControl -> handleFoldersKey baseHandler st (key, ms)
-        FilesControl -> handleFilesKey baseHandler st (key, ms)
+      case st ^. stFocus of
+        FoldersControl -> handleFoldersKey st (key, ms)
+        FilesControl -> handleFilesKey st (key, ms)
 
 
-handleFoldersKey :: (AppState -> K.Key -> AppState) -> AppState -> (K.Key, [K.Modifier]) -> Action AppState 
-handleFoldersKey baseHandler st (key, _) = do
+handleFoldersKey :: AppState ui -> (K.Key, [K.Modifier]) -> Action ui (AppState ui)
+handleFoldersKey st (key, _) = do
   st' <- case key of
            K.KChar 'l'  -> focusFile
            K.KChar '\t' -> focusFile
            K.KLeft      -> focusFile
-           _ -> pure $ baseHandler st key
+           _ -> runBaseHandler st
 
   getSelectedDir >>= \case
     Nothing -> do
@@ -72,16 +76,14 @@ handleFoldersKey baseHandler st (key, _) = do
     Just d -> do
       showFiles $ Lib.pdFiles d
       pure st'
-      
 
   where
-    focusFile = pure st { stFocus = FilesControl
-                        , stDetail = []
-                        }
+    focusFile = pure $ st & stFocus .~ FilesControl
+                          & stDetail .~ []
 
 
-handleFilesKey :: (AppState -> K.Key -> AppState) -> AppState -> (K.Key, [K.Modifier]) -> Action AppState 
-handleFilesKey baseHandler st (key, _) =
+handleFilesKey :: AppState ui -> (K.Key, [K.Modifier]) -> Action ui (AppState ui)
+handleFilesKey st (key, _) =
   case key of
     K.KChar 'h'  -> focusFolder
     K.KChar '\t' -> focusFolder
@@ -96,7 +98,7 @@ handleFilesKey baseHandler st (key, _) =
               logError e
               pure st
             Right d -> 
-              pure st { stDetail = parseDetail d }
+              pure $ st & stDetail .~ parseDetail d
 
     K.KChar 'e' ->
       getSelectedFile >>= \case
@@ -105,17 +107,16 @@ handleFilesKey baseHandler st (key, _) =
           editFile f
           getPassDetail f >>= \case
             Right d ->
-              pure st { stDetail = parseDetail d }
+              pure $ st & stDetail .~ parseDetail d
             Left e -> do
               logError e
-              pure st { stDetail = [] }
+              pure $ st & stDetail .~ []
 
-    _ -> pure $ baseHandler st key
+    _ -> runBaseHandler st
 
   where
-    focusFolder = pure st { stFocus = FoldersControl
-                          , stDetail = []
-                          }
+    focusFolder = pure $ st & stFocus .~ FoldersControl
+                            & stDetail .~ []
 
 parseDetail :: Text -> [DetailLine]
 parseDetail d =

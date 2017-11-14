@@ -36,6 +36,7 @@ library
                      , vector
                      , process
                      , free
+                     , lens
   default-language:    Haskell2010
 
 executable hpass
