@@ -54,7 +54,7 @@ main = do
                          , Ctrl._stUi = BrickState { _bListDir = BL.list ListDir items 1
                                                    , _bListFile = BL.list ListFile Vec.empty 1
                                                    }
-                         , Ctrl._stDebug = "debug...."
+                         , Ctrl._stDebug = "..."
                          }
           
   void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
@@ -91,12 +91,19 @@ handleEvent st ev =
 
 drawUI :: UIState -> [B.Widget Name]
 drawUI st =
-  [ (drawListDir st <+> drawListFile st <+> drawDetail st)
+  [ B.padTop (B.Pad 1) (drawListDir st <+> drawListFile st <+> drawDetail st)
     <=>
-    B.txt (st ^. Ctrl.stDebug)
+    drawFooter st
   ] 
 
+drawFooter :: UIState -> B.Widget Name
+drawFooter st =
+  B.padTop (B.Pad 1) $
+  B.vLimit 1 $
+  B.withAttr "messageBar" $
+  B.txt (st ^. Ctrl.stDebug)
 
+  
 drawListDir :: UIState -> B.Widget Name
 drawListDir st =
   B.hLimit 30 $ --TODO calc max width
@@ -174,6 +181,7 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.bl
                               , ("detailNum"               , B.fg V.red)
                               , ("detailData"              , B.fg V.yellow)
                               , ("detailKey"               , B.fg V.blue)
+                              , ("messageBar"              , B.fg V.brightYellow)
                               ]
 
 ------------------------
