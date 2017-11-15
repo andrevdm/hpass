@@ -25,7 +25,7 @@ import           Control.Monad.Free (Free(..))
 import qualified Graphics.Vty as V
 
 import qualified Lib
-import qualified Controller as Ctrl
+import qualified Controller as C
 
 data Name = ListDir
           | ListFile
@@ -39,7 +39,7 @@ data BrickState = BrickState { _bListDir :: BL.List Name Lib.PassDir
 
 makeLenses ''BrickState
 
-type UIState = Ctrl.AppState BrickState
+type UIState = C.AppState BrickState
 
 main :: IO ()
 main = do
@@ -48,13 +48,13 @@ main = do
 
   chan <- BCh.newBChan 10
 
-  let st = Ctrl.AppState { Ctrl._stPassRoot = ps
-                         , Ctrl._stDetail = []
-                         , Ctrl._stFocus = Ctrl.FoldersControl
-                         , Ctrl._stUi = BrickState { _bListDir = BL.list ListDir items 1
-                                                   , _bListFile = BL.list ListFile Vec.empty 1
-                                                   }
-                         , Ctrl._stDebug = "..."
+  let st = C.AppState { C._stPassRoot = ps
+                         , C._stDetail = []
+                         , C._stFocus = C.FoldersControl
+                         , C._stUi = BrickState { _bListDir = BL.list ListDir items 1
+                                                , _bListFile = BL.list ListFile Vec.empty 1
+                                                }
+                         , C._stDebug = "..."
                          }
           
   void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
@@ -71,7 +71,7 @@ handleEvent :: UIState -> B.BrickEvent Name Event -> B.EventM Name (B.Next UISta
 handleEvent st ev =
   case ev of
     (B.VtyEvent ve@(V.EvKey k ms)) -> do
-      let a = Ctrl.handleKeyPress st (k, ms)
+      let a = C.handleKeyPress st (k, ms)
       runPassDsl (handleBaseEvent ve) a
       
     _ -> B.continue st
@@ -79,14 +79,14 @@ handleEvent st ev =
   where
     handleBaseEvent :: V.Event -> UIState -> B.EventM Name UIState
     handleBaseEvent ve st' = 
-      case st ^. Ctrl.stFocus of
-        Ctrl.FilesControl -> do
-          r <- BL.handleListEventVi (const pure) ve $ st' ^. (Ctrl.stUi . bListFile)
-          pure $ st' & (Ctrl.stUi . bListFile) .~ r
+      case st ^. C.stFocus of
+        C.FilesControl -> do
+          r <- BL.handleListEventVi (const pure) ve $ st' ^. (C.stUi . bListFile)
+          pure $ st' & (C.stUi . bListFile) .~ r
 
-        Ctrl.FoldersControl -> do
-          r <- BL.handleListEventVi (const pure) ve $ st' ^. (Ctrl.stUi . bListDir)
-          pure $ st' & (Ctrl.stUi . bListDir) .~ r
+        C.FoldersControl -> do
+          r <- BL.handleListEventVi (const pure) ve $ st' ^. (C.stUi . bListDir)
+          pure $ st' & (C.stUi . bListDir) .~ r
   
 
 drawUI :: UIState -> [B.Widget Name]
@@ -101,7 +101,7 @@ drawFooter st =
   B.padTop (B.Pad 1) $
   B.vLimit 1 $
   B.withAttr "messageBar" $
-  B.txt (st ^. Ctrl.stDebug)
+  B.txt (st ^. C.stDebug)
 
   
 drawListDir :: UIState -> B.Widget Name
@@ -110,7 +110,7 @@ drawListDir st =
   B.withBorderStyle BBS.unicodeRounded $
   BB.borderWithLabel (B.str "folders") $
   B.padAll 1 $
-  BL.renderList listDrawDir ((st ^. Ctrl.stFocus) == Ctrl.FoldersControl) (st ^. (Ctrl.stUi . bListDir))
+  BL.renderList listDrawDir ((st ^. C.stFocus) == C.FoldersControl) (st ^. (C.stUi . bListDir))
 
   
 drawListFile :: UIState -> B.Widget Name
@@ -121,12 +121,12 @@ drawListFile st =
   B.withBorderStyle BBS.unicodeRounded $
   BB.borderWithLabel (B.str "passwords") $
   B.padAll 1 $
-  BL.renderList listDrawFile ((st ^. Ctrl.stFocus) == Ctrl.FilesControl) (st ^. (Ctrl.stUi . bListFile))
+  BL.renderList listDrawFile ((st ^. C.stFocus) == C.FilesControl) (st ^. (C.stUi . bListFile))
 
   
 drawDetail :: UIState -> B.Widget Name
 drawDetail st =
-  if (not . null) $ st ^. Ctrl.stDetail
+  if (not . null) $ st ^. C.stDetail
   then
     B.hLimit 80 $
     B.padTop (B.Pad 8) $
@@ -135,19 +135,19 @@ drawDetail st =
     B.withBorderStyle BBS.unicodeRounded $
     BB.borderWithLabel (B.str "detail") $
     B.padAll 1 $
-    formatPassData $ st ^. Ctrl.stDetail
+    formatPassData $ st ^. C.stDetail
   else
     B.emptyWidget
 
 
-formatPassData :: [Ctrl.DetailLine] -> B.Widget a
+formatPassData :: [C.DetailLine] -> B.Widget a
 formatPassData ls =
   let ms = zipWith format [0,1..] ls in
   foldl' (<=>) B.emptyWidget ms
 
   where
-    format :: Int -> Ctrl.DetailLine -> B.Widget a
-    format i (Ctrl.DetailLine _ k v) =
+    format :: Int -> C.DetailLine -> B.Widget a
+    format i (C.DetailLine _ k v) =
       case i of
         x | x == 0 -> BM.markup $ ("0"    @? "detailNum") <> ": " <> ("*****" @? "detailData")
         x | x < 10 -> BM.markup $ (show x @? "detailNum") <> ": " <> keyValue k v
@@ -187,56 +187,56 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.bl
 ------------------------
 
 runPassDsl :: (UIState -> B.EventM Name UIState)
-           -> Ctrl.Action BrickState (Ctrl.AppState BrickState)
+           -> C.Action BrickState (C.AppState BrickState)
            -> B.EventM Name (B.Next UIState)
 runPassDsl h a =
   case a of
     (Pure st) ->
       B.continue st
 
-    (Free (Ctrl.Halt st)) ->
+    (Free (C.Halt st)) ->
       B.halt st
 
-    (Free (Ctrl.ClearFiles st n)) -> do
-      let st' = st & (Ctrl.stUi . bListFile) %~ BL.listClear
+    (Free (C.ClearFiles st n)) -> do
+      let st' = st & (C.stUi . bListFile) %~ BL.listClear
       runPassDsl h (n st')
     
-    (Free (Ctrl.ShowFiles st fs n)) -> do
+    (Free (C.ShowFiles st fs n)) -> do
       let items = Vec.fromList fs
-      let st' = st & (Ctrl.stUi . bListFile) .~ BL.list ListFile items 1
+      let st' = st & (C.stUi . bListFile) .~ BL.list ListFile items 1
       runPassDsl h (n st')
 
-    (Free (Ctrl.RunBaseHandler st n)) -> do
+    (Free (C.RunBaseHandler st n)) -> do
       st' <- h st
       runPassDsl h (n st')
 
-    (Free (Ctrl.LogError _ n)) -> 
+    (Free (C.LogError _ n)) -> 
       runPassDsl h n
 
-    (Free (Ctrl.GetSelectedDir st n)) -> do
-      let dir = case BL.listSelectedElement (st ^. (Ctrl.stUi . bListDir)) of
+    (Free (C.GetSelectedDir st n)) -> do
+      let dir = case BL.listSelectedElement (st ^. (C.stUi . bListDir)) of
                   Just (_, d) -> Just d
                   Nothing -> Nothing
       runPassDsl h (n dir)
 
-    (Free (Ctrl.GetSelectedFile st n)) -> do
-      let file = case BL.listSelectedElement (st ^. (Ctrl.stUi . bListFile)) of
+    (Free (C.GetSelectedFile st n)) -> do
+      let file = case BL.listSelectedElement (st ^. (C.stUi . bListFile)) of
                    Just (_, f) -> Just f
                    Nothing -> Nothing
       runPassDsl h (n file)
 
-    (Free (Ctrl.ClipLine line file n)) -> do
+    (Free (C.ClipLine line file n)) -> do
       r <- liftIO $ Lib.runProc "pass" ["show", "--clip=" <> show line, Lib.pfPassPath file]
       let txt = case r of
                   Right _ -> Right ()
                   Left (e, _, _) -> Left e
       runPassDsl h $ n txt
 
-    (Free (Ctrl.GetPassDetail file n)) -> do
+    (Free (C.GetPassDetail file n)) -> do
       txt <- liftIO $ runPassShow file
       runPassDsl h $ n txt
 
-    (Free (Ctrl.ExternEditFile file fn)) ->
+    (Free (C.ExternEditFile file fn)) ->
       B.suspendAndResume . liftIO $ do
         void $ Lib.shell "pass" ["edit", Lib.pfPassPath file]
 
