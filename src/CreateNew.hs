@@ -135,11 +135,11 @@ handleEvent st ev =
         (K.KChar '\t', []) -> B.continue $ st & stFocus %~ BF.focusNext
         (K.KChar '\t', [K.MShift]) -> B.continue $ st & stFocus %~ BF.focusPrev --TODO not working
         (_, []) ->
-          case BF.focusGetCurrent $ st  ^. stFocus of
-            Just EditFolder -> handleEdit ek stEditFolder stEditFolder 
-            Just EditName -> handleEdit ek stEditName stEditName
-            Just EditPass -> handleEdit ek stEditPassword stEditPassword
-            Just EditLen  | isValidNumericKey k -> handleEdit ek stEditLen stEditLen
+          case BF.focusGetCurrent $ st ^. stFocus of
+            Just EditFolder -> handleEdit ek stEditFolder stEditFolder False
+            Just EditName -> handleEdit ek stEditName stEditName False
+            Just EditPass -> handleEdit ek stEditPassword stEditPassword False
+            Just EditLen  | isValidNumericKey k -> handleEdit ek stEditLen stEditLen True
 
             Just ButOk -> handleButOk k
             Just ButCancel -> handlButCancel k
@@ -186,12 +186,15 @@ handleEvent st ev =
                                    _ -> Just ".")
                      n in
 
-        B.continue $ st & stTexts %~ toggle
-      else B.continue st
+        let update = if n /= CboxEditAfter then withNewPassword else identity in
+        B.continue . update $ st & stTexts %~ toggle
+      else
+        B.continue st
     
-    handleEdit ek get' set = do  --TODO fix needing get and set
+    handleEdit ek get' set updatePwd = do  --TODO fix needing get and set
       r <- BE.handleEditorEvent ek (st ^. get')
-      B.continue $ st & set .~ r
+      let update = if updatePwd then withNewPassword else identity
+      B.continue . update $ st & set .~ r
 
     isValidNumericKey k = 
       case k of
