@@ -12,6 +12,7 @@ import           Control.Lens.TH (makeLenses)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Txt
 import qualified Data.Char as Char
+import qualified Data.CircularList as CLst
 import           Brick ((<+>), (<=>))
 import qualified Brick as B
 import qualified Brick.BChan as BCh
@@ -40,46 +41,52 @@ data Name = EditPass
           | ButOk
           | ButCancel
           deriving (Eq, Ord, Show)
+
+focusable :: [Name]
+focusable = [ EditFolder
+            , EditName
+            , EditPass
+            , EditLen
+            , CboxCaps
+            , CboxLower
+            , CboxNum
+            , CboxSymbol
+            , CboxRemoveAmbig
+            , CboxEditAfter
+            , ButOk
+            , ButCancel
+            ]
+
 data Event = Event
+  
            
 data St = St { _stEditPassword :: BE.Editor Text Name
              , _stEditFolder :: BE.Editor Text Name
              , _stEditName :: BE.Editor Text Name
              , _stEditLen :: BE.Editor Text Name
+             , _stSuccess :: Bool
              , _stFocus :: BF.FocusRing Name
              , _stTexts :: Map.Map Name Text
-             , _stSuccess :: Bool
+             , _stDebug :: Text
              }
 
 makeLenses ''St
 
 
 data CreatePasswordResult = CreatePasswordResult { rPassword :: Text
+                                                 , rSuccess :: Bool
                                                  , rFolder :: Text
                                                  , rName :: Text
-                                                 , rLen :: Int
-                                                 , rSuccess :: Bool
-                                                 , rUseCaps :: Bool
-                                                 , rUseLower :: Bool
-                                                 , rUseNum :: Bool
-                                                 , rUseSymbol :: Bool
-                                                 , rRemoveAmbig :: Bool
                                                  }
                           deriving (Show)
 
 
 createResult :: St -> CreatePasswordResult
 createResult st =
-  CreatePasswordResult { rPassword = Txt.unlines $ BE.getEditContents $ st ^. stEditPassword
-                       , rFolder = Txt.unlines $ BE.getEditContents $ st ^. stEditFolder
-                       , rName = Txt.unlines $ BE.getEditContents $ st ^. stEditName
-                       , rLen = fromMaybe 21 . readMaybe . Txt.unpack . Txt.unlines $ BE.getEditContents $ st ^. stEditName
+  CreatePasswordResult { rPassword = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditPassword
                        , rSuccess = st ^. stSuccess
-                       , rUseCaps = Map.findWithDefault "X" CboxCaps (st ^. stTexts) == "X"
-                       , rUseLower = Map.findWithDefault "X" CboxLower (st ^. stTexts) == "X"
-                       , rUseNum = Map.findWithDefault "X" CboxNum (st ^. stTexts) == "X"
-                       , rUseSymbol = Map.findWithDefault "X" CboxSymbol (st ^. stTexts) == "X"
-                       , rRemoveAmbig = Map.findWithDefault "X" CboxRemoveAmbig (st ^. stTexts) == "X"
+                       , rFolder = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditFolder
+                       , rName = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditName
                        }
 
 runCreatePassword :: IO CreatePasswordResult
@@ -89,27 +96,16 @@ runCreatePassword = do
               , _stEditFolder = BE.editor EditFolder (Just 1) ""
               , _stEditName = BE.editor EditName (Just 1) ""
               , _stEditLen = BE.editor EditLen (Just 1) "21"
-              , _stFocus = BF.focusRing [ EditFolder
-                                        , EditName
-                                        , EditPass
-                                        , EditLen
-                                        , CboxCaps
-                                        , CboxLower
-                                        , CboxNum
-                                        , CboxSymbol
-                                        , CboxRemoveAmbig
-                                        , CboxEditAfter
-                                        , ButOk
-                                        , ButCancel
-                                        ]
-              , _stTexts = Map.fromList [ (CboxCaps,        "X")
-                                        , (CboxLower,       "X")
-                                        , (CboxNum,         "X")
-                                        , (CboxSymbol,      "X")
-                                        , (CboxRemoveAmbig, ".")
-                                        , (CboxEditAfter,   "X")
-                                        ]
               , _stSuccess = False
+              , _stFocus = BF.focusRing focusable
+              , _stDebug = ""
+              , _stTexts = Map.fromList [ (CboxNum, "X")
+                                        , (CboxCaps, "X")
+                                        , (CboxLower, "X")
+                                        , (CboxSymbol, "X")
+                                        , (CboxEditAfter, "X")
+                                        , (CboxRemoveAmbig, ".")
+                                        ]
               }
   st' <- B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
   pure $ createResult st'
@@ -131,7 +127,7 @@ handleEvent st ev =
       case (k, ms) of
         (K.KChar '\t', []) -> B.continue $ st & stFocus %~ BF.focusNext
         (K.KChar '\t', [K.MShift]) -> B.continue $ st & stFocus %~ BF.focusPrev --TODO not working
-        _ ->
+        (_, []) ->
           case BF.focusGetCurrent $ st  ^. stFocus of
             Just EditFolder -> handleEdit ek stEditFolder stEditFolder 
             Just EditName -> handleEdit ek stEditName stEditName
@@ -141,7 +137,7 @@ handleEvent st ev =
             Just ButOk -> handleButOk k
             Just ButCancel -> handlButCancel k
 
-            Just c | c `elem` [CboxCaps
+            Just c | c `elem` [ CboxCaps
                               , CboxLower
                               , CboxNum
                               , CboxSymbol
@@ -150,9 +146,21 @@ handleEvent st ev =
                               ] -> handleCbox c k
   
             _ -> B.continue st
+
+        (K.KChar c, [m]) | m `elem` [K.MMeta, K.MAlt] ->
+          case Map.lookup c focusMap of
+            Just (n, _) -> B.continue $ setFocus n
+            Nothing -> B.continue st
+
+        _ ->
+          B.continue st -- & stDebug .~ (show k <> " | " <> show ms)
+
     _ -> B.continue st
 
   where
+    setFocus n =
+      st & stFocus %~ BF.focusRingModify (\r -> fromMaybe r $ CLst.rotateTo n r)
+    
     handleButOk k =
       if k == K.KEnter
       then B.halt $ st & stSuccess .~ True
@@ -187,9 +195,7 @@ handleEvent st ev =
         K.KDel -> True
         K.KBS -> True
         _ -> False
---handleEvent g _ = B.continue g
 
--- Drawing
 
 drawUI :: St -> [B.Widget Name]
 drawUI st =
@@ -199,6 +205,8 @@ drawUI st =
     BB.border $
     B.padAll 1 $
     body)
+    <=>
+    (B.txt $ st ^. stDebug)
   ]
 
   where
@@ -212,47 +220,50 @@ drawUI st =
       (BC.center $ acceptButtons) 
 
     acceptButtons =
-      button ButOk ("","O","k")
+      button ButOk
       <+>
-      button ButCancel ("Cance","l","")
+      button ButCancel
 
-    button n (pre, hi, post) =
+    button n =
       let f = BF.focusGetCurrent (st ^. stFocus) == Just n in
       let a = if f then "buttonFocus" else "button" in
       B.withAttr a $
       B.withBorderStyle (if f then BBS.unicodeBold else BBS.unicodeRounded) $
       BB.border $
       if f 
-        then B.txt $ pre <> hi <> post
-        else title pre hi post
+        then
+          let (x, y, z) = getFocusKey n in
+          title' False x (Txt.singleton y) z
+        else
+          title n
 
     genPasswordBlock =
-      title' "G" "enerate Password" 
+      title' True "" "G" "enerate Password" 
       <=>
       (B.padLeft (B.Pad 3) $ getPasswordOptions)
 
     getPasswordOptions =
-      (title' "L" "ength:" <+> (B.padLeft (B.Pad 2) $ editor EditLen (st ^. stEditLen) 4))
+      (title EditLen <+> (B.padLeft (B.Pad 2) $ editor EditLen (st ^. stEditLen) 4))
       <=>
-      (cbox CboxCaps $ title' "C" "apital letters")
+      (cbox CboxCaps)
       <=>
-      (cbox CboxLower $ title' "L" "ower case letters")
+      (cbox CboxLower)
       <=>
-      (cbox CboxNum $ title "N" "u" "mbers")
+      (cbox CboxNum)
       <=>
-      (cbox CboxSymbol $ title' "S" "ymbols")
+      (cbox CboxSymbol)
       <=>
-      (cbox CboxRemoveAmbig $ title "Remove " "a" "mbiguous characters")
+      (cbox CboxRemoveAmbig)
     
     editAfter =
-      cbox CboxEditAfter $ (title' "E" "dit After")
+      cbox CboxEditAfter
       
-    cbox n w = 
+    cbox n = 
       let checked = Map.findWithDefault "X" n $ st ^. stTexts in
       let attr = if BF.focusGetCurrent (st ^. stFocus) == Just n then "cboxFocus" else "cbox" in
-      (B.withAttr attr $ B.txt checked)
-      <+>
-      (B.padLeft (B.Pad 1) w)
+        (B.withAttr attr $ B.txt checked)
+        <+>
+        (B.padLeft (B.Pad 1) $ title n)
     
     topEditBoxesAndLables =
       titlesTL
@@ -267,25 +278,37 @@ drawUI st =
       editor EditPass (st ^. stEditPassword) 90
 
     titlesTL =
-      title' "F" "older:" <=> title' "N" "ame:" <=> title' "P" "assword:"
+      title EditFolder
+      <=>
+      title EditName
+      <=>
+      title EditPass
 
     editor n e size =
       B.hLimit size $
       B.vLimit 1 $
       BE.renderEditor (B.txt . Txt.unlines) (BF.focusGetCurrent (st ^. stFocus) == Just n) e
 
-    title' und post =
-      title "" und post
+    title n =
+      let (pre, accel', post) = getFocusKey n in
+      let accel = if Txt.null pre then Txt.toUpper (Txt.singleton accel') else Txt.singleton accel' in
+      title' True pre accel post
       
-    title pre und post =
-      (BM.markup $ pre @? "titleText")
-      <+>
-      (BM.markup $ und @? "titleUnderline")
-      <+>
-      (BM.markup $ post @? "titleText")
+    title' useMarkup pre accel post =
+      if useMarkup
+      then
+        (BM.markup $ pre @? "titleText")
+        <+>
+        (BM.markup $ accel @? "titleUnderline")
+        <+>
+        (BM.markup $ post @? "titleText")
+      else
+        B.txt pre <+> B.txt (if Txt.null pre then Txt.toUpper accel else accel) <+> B.txt post
+     
 
 customAttr :: BA.AttrName
 customAttr = BL.listSelectedAttr <> "custom"
+
 
 theMap :: BA.AttrMap
 theMap = BA.attrMap V.defAttr [ (BL.listAttr,         V.white `B.on` V.blue)
@@ -300,3 +323,27 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr,         V.white `B.on` V.blue)
                               , ("button",            V.defAttr)
                               , ("buttonFocus",       V.black `B.on` V.yellow)
                               ]
+
+
+getFocusKey :: Name -> (Text, Char, Text)
+getFocusKey n =
+  case n of
+    EditPass        -> ("",        'p', "assword:")
+    EditFolder      -> ("",        'f', "older:")
+    EditName        -> ("",        'n', "ame:")
+    EditLen         -> ("Len",     'g', "h:")
+    CboxEditAfter   -> ("",        'e', "dit After")
+    CboxCaps        -> ("",        'c', "aps")
+    CboxLower       -> ("L",       'o', "wer")
+    CboxNum         -> ("N",       'u', "m")
+    CboxSymbol      -> ("",        's', "ymbols")
+    CboxRemoveAmbig -> ("Remove ", 'a', "mbiguous")
+    ButOk           -> ("",        'o', "k")
+    ButCancel       -> ("Cance",   'l', "")
+
+focusMap :: Map.Map Char (Name, (Text, Char, Text))
+focusMap = Map.fromList $ go <$> focusable
+  where
+    go n =
+      let (pre, accel, post) = getFocusKey n in
+      (accel, (n, (pre, accel, post)))

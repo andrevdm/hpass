@@ -37,6 +37,7 @@ library
                      , process
                      , free
                      , lens
+                     , data-clist
   default-language:    Haskell2010
 
 executable hpass
