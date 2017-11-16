@@ -20,6 +20,7 @@ library
                      , BrickUi
                      , Controller
                      , CreateNew
+                     , Crypto
   build-depends:       base >= 4.7 && < 5
                      , protolude
                      , text
@@ -38,6 +39,8 @@ library
                      , free
                      , lens
                      , data-clist
+                     , cryptonite
+                     , bytestring
   default-language:    Haskell2010
 
 executable hpass

@@ -28,6 +28,8 @@ import qualified Brick.Widgets.Border.Style as BBS
 import qualified Graphics.Vty as V
 import qualified Graphics.Vty.Input.Events as K
 
+import qualified Crypto 
+
 data Name = EditPass
           | EditFolder
           | EditName
@@ -67,6 +69,7 @@ data St = St { _stEditPassword :: BE.Editor Text Name
              , _stSuccess :: Bool
              , _stFocus :: BF.FocusRing Name
              , _stTexts :: Map.Map Name Text
+             , _stSeed :: Crypto.Seed
              , _stDebug :: Text
              }
 
@@ -81,34 +84,36 @@ data CreatePasswordResult = CreatePasswordResult { rPassword :: Text
                           deriving (Show)
 
 
-createResult :: St -> CreatePasswordResult
-createResult st =
-  CreatePasswordResult { rPassword = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditPassword
-                       , rSuccess = st ^. stSuccess
-                       , rFolder = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditFolder
-                       , rName = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditName
-                       }
-
 runCreatePassword :: IO CreatePasswordResult
 runCreatePassword = do
   chan <- BCh.newBChan 10
-  let st = St { _stEditPassword = BE.editor EditPass (Just 1) ""
-              , _stEditFolder = BE.editor EditFolder (Just 1) ""
-              , _stEditName = BE.editor EditName (Just 1) ""
-              , _stEditLen = BE.editor EditLen (Just 1) "21"
-              , _stSuccess = False
-              , _stFocus = BF.focusRing focusable
-              , _stDebug = ""
-              , _stTexts = Map.fromList [ (CboxNum, "X")
-                                        , (CboxCaps, "X")
-                                        , (CboxLower, "X")
-                                        , (CboxSymbol, "X")
-                                        , (CboxEditAfter, "X")
-                                        , (CboxRemoveAmbig, ".")
-                                        ]
-              }
-  st' <- B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
-  pure $ createResult st'
+  seed' <- Crypto.genSeed
+  
+  let st' = St { _stEditPassword = BE.editor EditPass (Just 1) ""
+               , _stEditFolder = BE.editor EditFolder (Just 1) ""
+               , _stEditName = BE.editor EditName (Just 1) ""
+               , _stEditLen = BE.editor EditLen (Just 1) "21"
+               , _stSuccess = False
+               , _stFocus = BF.focusRing focusable
+               , _stDebug = ""
+               , _stSeed = seed'
+               , _stTexts = Map.fromList [ (CboxNum, "X")
+                                         , (CboxCaps, "X")
+                                         , (CboxLower, "X")
+                                         , (CboxSymbol, "X")
+                                         , (CboxEditAfter, "X")
+                                         , (CboxRemoveAmbig, ".")
+                                         ]
+               }
+
+  let (pwd, seed) = Crypto.genPassword (createOptions st') seed'
+
+  let st = st' { _stEditPassword = BE.editor EditPass (Just 1) pwd
+               , _stSeed = seed
+               }
+
+  stResult <- B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
+  pure $ createResult stResult
 
 
 app :: B.App St Event Name
@@ -125,6 +130,8 @@ handleEvent st ev =
   case ev of
     (B.VtyEvent ek@(V.EvKey k ms)) ->
       case (k, ms) of
+        (K.KChar 'g', [K.MAlt]) -> B.continue $ withNewPassword st
+        (K.KChar 'g', [K.MMeta]) -> B.continue $ withNewPassword st
         (K.KChar '\t', []) -> B.continue $ st & stFocus %~ BF.focusNext
         (K.KChar '\t', [K.MShift]) -> B.continue $ st & stFocus %~ BF.focusPrev --TODO not working
         (_, []) ->
@@ -331,10 +338,10 @@ getFocusKey n =
     EditPass        -> ("",        'p', "assword:")
     EditFolder      -> ("",        'f', "older:")
     EditName        -> ("",        'n', "ame:")
-    EditLen         -> ("Len",     'g', "h:")
+    EditLen         -> ("Leng",    't', "h:")
     CboxEditAfter   -> ("",        'e', "dit After")
     CboxCaps        -> ("",        'c', "aps")
-    CboxLower       -> ("L",       'o', "wer")
+    CboxLower       -> ("Lo",      'w', "er")
     CboxNum         -> ("N",       'u', "m")
     CboxSymbol      -> ("",        's', "ymbols")
     CboxRemoveAmbig -> ("Remove ", 'a', "mbiguous")
@@ -347,3 +354,29 @@ focusMap = Map.fromList $ go <$> focusable
     go n =
       let (pre, accel, post) = getFocusKey n in
       (accel, (n, (pre, accel, post)))
+
+
+withNewPassword :: St -> St
+withNewPassword st =
+  let (pwd, seed) = Crypto.genPassword (createOptions st) (_stSeed st) in
+  st { _stEditPassword = BE.editor EditPass (Just 1) pwd
+     , _stSeed = seed
+     }
+
+createResult :: St -> CreatePasswordResult
+createResult st =
+  CreatePasswordResult { rPassword = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditPassword
+                       , rSuccess = st ^. stSuccess
+                       , rFolder = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditFolder
+                       , rName = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditName
+                       }
+
+createOptions :: St -> Crypto.PasswordOptions
+createOptions st =
+  Crypto.PasswordOptins { Crypto.poUseLower = Map.findWithDefault "X" CboxLower (st ^. stTexts) == "X"
+                        , Crypto.poUseCaps = Map.findWithDefault "X" CboxCaps (st ^. stTexts) == "X"
+                        , Crypto.poUseNum = Map.findWithDefault "X" CboxNum (st ^. stTexts) == "X"
+                        , Crypto.poUseSymbol = Map.findWithDefault "X" CboxSymbol (st ^. stTexts) == "X"
+                        , Crypto.poRemoveAmbig = Map.findWithDefault "X" CboxRemoveAmbig (st ^. stTexts) == "X"
+                        , Crypto.poLength = fromMaybe 21 . readMaybe . Txt.unpack . Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditLen
+                        }
