@@ -9,8 +9,9 @@ module CreateNew where
 import           Protolude
 import           Control.Lens ((^.), (.~), (%~))
 import           Control.Lens.TH (makeLenses)
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as Txt
-import qualified Data.Vector as Vec
+import qualified Data.Char as Char
 import           Brick ((<+>), (<=>))
 import qualified Brick as B
 import qualified Brick.BChan as BCh
@@ -23,8 +24,6 @@ import qualified Brick.Widgets.List as BL
 import qualified Brick.Widgets.Border as BB
 import qualified Brick.Widgets.Center as BC
 import qualified Brick.Widgets.Border.Style as BBS
-import           Control.Monad.Free (Free(..))
---import           Control.Monad.Free.Church as Fr
 import qualified Graphics.Vty as V
 import qualified Graphics.Vty.Input.Events as K
 
@@ -46,36 +45,74 @@ data Event = Event
 data St = St { _stEditPassword :: BE.Editor Text Name
              , _stEditFolder :: BE.Editor Text Name
              , _stEditName :: BE.Editor Text Name
-             , _stEditLength :: BE.Editor Text Name
+             , _stEditLen :: BE.Editor Text Name
              , _stFocus :: BF.FocusRing Name
+             , _stTexts :: Map.Map Name Text
+             , _stSuccess :: Bool
              }
 
 makeLenses ''St
 
 
-main :: IO ()
-main = do
-  chan <- BCh.newBChan 10
-  let g = St { _stEditPassword = BE.editor EditPass Nothing ""
-             , _stEditFolder = BE.editor EditFolder Nothing ""
-             , _stEditName = BE.editor EditName Nothing ""
-             , _stEditLength = BE.editor EditLen (Just 4) "21"
-             , _stFocus = BF.focusRing [ EditFolder
-                                       , EditName
-                                       , EditPass
-                                       , EditLen
-                                       , CboxCaps
-                                       , CboxLower
-                                       , CboxNum
-                                       , CboxSymbol
-                                       , CboxRemoveAmbig
-                                       , CboxEditAfter
-                                       , ButOk
-                                       , ButCancel
-                                       ]
-             }
-  void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app g
+data CreatePasswordResult = CreatePasswordResult { rPassword :: Text
+                                                 , rFolder :: Text
+                                                 , rName :: Text
+                                                 , rLen :: Int
+                                                 , rSuccess :: Bool
+                                                 , rUseCaps :: Bool
+                                                 , rUseLower :: Bool
+                                                 , rUseNum :: Bool
+                                                 , rUseSymbol :: Bool
+                                                 , rRemoveAmbig :: Bool
+                                                 }
+                          deriving (Show)
 
+
+createResult :: St -> CreatePasswordResult
+createResult st =
+  CreatePasswordResult { rPassword = Txt.unlines $ BE.getEditContents $ st ^. stEditPassword
+                       , rFolder = Txt.unlines $ BE.getEditContents $ st ^. stEditFolder
+                       , rName = Txt.unlines $ BE.getEditContents $ st ^. stEditName
+                       , rLen = fromMaybe 21 . readMaybe . Txt.unpack . Txt.unlines $ BE.getEditContents $ st ^. stEditName
+                       , rSuccess = st ^. stSuccess
+                       , rUseCaps = Map.findWithDefault "X" CboxCaps (st ^. stTexts) == "X"
+                       , rUseLower = Map.findWithDefault "X" CboxLower (st ^. stTexts) == "X"
+                       , rUseNum = Map.findWithDefault "X" CboxNum (st ^. stTexts) == "X"
+                       , rUseSymbol = Map.findWithDefault "X" CboxSymbol (st ^. stTexts) == "X"
+                       , rRemoveAmbig = Map.findWithDefault "X" CboxRemoveAmbig (st ^. stTexts) == "X"
+                       }
+
+runCreatePassword :: IO CreatePasswordResult
+runCreatePassword = do
+  chan <- BCh.newBChan 10
+  let st = St { _stEditPassword = BE.editor EditPass (Just 1) ""
+              , _stEditFolder = BE.editor EditFolder (Just 1) ""
+              , _stEditName = BE.editor EditName (Just 1) ""
+              , _stEditLen = BE.editor EditLen (Just 1) "21"
+              , _stFocus = BF.focusRing [ EditFolder
+                                        , EditName
+                                        , EditPass
+                                        , EditLen
+                                        , CboxCaps
+                                        , CboxLower
+                                        , CboxNum
+                                        , CboxSymbol
+                                        , CboxRemoveAmbig
+                                        , CboxEditAfter
+                                        , ButOk
+                                        , ButCancel
+                                        ]
+              , _stTexts = Map.fromList [ (CboxCaps,        "X")
+                                        , (CboxLower,       "X")
+                                        , (CboxNum,         "X")
+                                        , (CboxSymbol,      "X")
+                                        , (CboxRemoveAmbig, ".")
+                                        , (CboxEditAfter,   "X")
+                                        ]
+              , _stSuccess = False
+              }
+  st' <- B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
+  pure $ createResult st'
 
 
 app :: B.App St Event Name
@@ -90,17 +127,66 @@ handleEvent :: St -> B.BrickEvent Name Event -> B.EventM Name (B.Next St)
 handleEvent g (B.VtyEvent (V.EvKey V.KEsc [])) = B.halt g
 handleEvent st ev =
   case ev of
-    (B.VtyEvent ek@(V.EvKey k [])) ->
-      case k of
-        (K.KChar '\t') ->
-          B.continue $ st & stFocus %~ BF.focusNext
+    (B.VtyEvent ek@(V.EvKey k ms)) ->
+      case (k, ms) of
+        (K.KChar '\t', []) -> B.continue $ st & stFocus %~ BF.focusNext
+        (K.KChar '\t', [K.MShift]) -> B.continue $ st & stFocus %~ BF.focusPrev --TODO not working
         _ ->
           case BF.focusGetCurrent $ st  ^. stFocus of
-            Just EditFolder -> do
-              r <- BE.handleEditorEvent ek (st ^. stEditFolder)
-              B.continue $ st & stEditFolder .~ r
+            Just EditFolder -> handleEdit ek stEditFolder stEditFolder 
+            Just EditName -> handleEdit ek stEditName stEditName
+            Just EditPass -> handleEdit ek stEditPassword stEditPassword
+            Just EditLen  | isValidNumericKey k -> handleEdit ek stEditLen stEditLen
+
+            Just ButOk -> handleButOk k
+            Just ButCancel -> handlButCancel k
+
+            Just c | c `elem` [CboxCaps
+                              , CboxLower
+                              , CboxNum
+                              , CboxSymbol
+                              , CboxRemoveAmbig
+                              , CboxEditAfter
+                              ] -> handleCbox c k
+  
             _ -> B.continue st
     _ -> B.continue st
+
+  where
+    handleButOk k =
+      if k == K.KEnter
+      then B.halt $ st & stSuccess .~ True
+      else B.continue st
+    
+    handlButCancel k =
+      if k == K.KEnter
+      then B.halt $ st & stSuccess .~ False
+      else B.continue st
+    
+    handleCbox n k =
+      if (k == K.KEnter) || (k == K.KChar ' ') 
+      then
+        let toggle = Map.alter (\case
+                                   Just "." -> Just "X"
+                                   _ -> Just ".")
+                     n in
+
+        B.continue $ st & stTexts %~ toggle
+      else B.continue st
+    
+    handleEdit ek get' set = do  --TODO fix needing get and set
+      r <- BE.handleEditorEvent ek (st ^. get')
+      B.continue $ st & set .~ r
+
+    isValidNumericKey k = 
+      case k of
+        K.KChar c -> Char.isDigit c
+        K.KLeft -> True
+        K.KRight -> True
+        K.KBackTab -> True
+        K.KDel -> True
+        K.KBS -> True
+        _ -> False
 --handleEvent g _ = B.continue g
 
 -- Drawing
@@ -146,7 +232,7 @@ drawUI st =
       (B.padLeft (B.Pad 3) $ getPasswordOptions)
 
     getPasswordOptions =
-      (title' "L" "ength:" <+> (B.padLeft (B.Pad 2) $ editor EditLen (st ^. stEditLength) 4))
+      (title' "L" "ength:" <+> (B.padLeft (B.Pad 2) $ editor EditLen (st ^. stEditLen) 4))
       <=>
       (cbox CboxCaps $ title' "C" "apital letters")
       <=>
@@ -162,9 +248,9 @@ drawUI st =
       cbox CboxEditAfter $ (title' "E" "dit After")
       
     cbox n w = 
-      let checked = True in
-      let attr = if (BF.focusGetCurrent (st ^. stFocus) == Just n) then "cboxFocus" else "cbox" in
-      (B.withAttr attr $ B.txt (if checked then "X" else "."))
+      let checked = Map.findWithDefault "X" n $ st ^. stTexts in
+      let attr = if BF.focusGetCurrent (st ^. stFocus) == Just n then "cboxFocus" else "cbox" in
+      (B.withAttr attr $ B.txt checked)
       <+>
       (B.padLeft (B.Pad 1) w)
     

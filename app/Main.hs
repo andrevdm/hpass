@@ -8,5 +8,6 @@ import qualified BrickUi
 import qualified CreateNew
 
 main :: IO ()
-main = --BrickUi.main
-  CreateNew.main
+main = do --BrickUi.main
+  r <- CreateNew.runCreatePassword
+  print r
