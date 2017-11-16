@@ -19,6 +19,7 @@ library
   exposed-modules:     Lib
                      , BrickUi
                      , Controller
+                     , CreateNew
   build-depends:       base >= 4.7 && < 5
                      , protolude
                      , text
