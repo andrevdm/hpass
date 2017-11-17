@@ -1,5 +1,5 @@
 name:                hpass
-version:             0.1.2.0
+version:             0.1.3.0
 -- synopsis:
 -- description:
 homepage:            https://github.com/githubuser/hpass#readme
@@ -41,6 +41,7 @@ library
                      , data-clist
                      , cryptonite
                      , bytestring
+                     , time
   default-language:    Haskell2010
 
 executable hpass

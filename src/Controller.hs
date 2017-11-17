@@ -11,6 +11,7 @@ import           Protolude
 import           Control.Lens ((^.), (.~))
 import           Control.Lens.TH (makeLenses)
 import qualified Data.Text as Txt
+import qualified Data.Time as Tm
 import           Control.Monad.Free.TH
 import           Control.Monad.Free
 --import           Control.Monad.Free.Church
@@ -20,7 +21,19 @@ import qualified Lib
 import qualified CreateNew as CN
 
 version :: Text
-version = "0.1.2.0"
+version = "0.1.3.0"
+
+data Level = LevelInfo
+           | LevelWarn
+           | LevelError
+
+data Message = Message { mText :: Text
+                       , mLevel :: Level
+                       , mTtl :: Int
+                       }
+
+defaultMessageTtl :: Int
+defaultMessageTtl = 2
 
 data DetailLine = DetailLine { dlOriginal :: Text
                              , dlKey :: Text
@@ -36,7 +49,7 @@ data AppState ui = AppState { _stPassRoot :: Lib.PassDir
                             , _stFocus :: Name
                             , _stUi :: ui
                             , _stLastGenPassState :: Maybe CN.PrevState
-                            , _stDebug :: Text
+                            , _stMessage :: Maybe Message
                             }
 
 makeLenses ''AppState
@@ -114,7 +127,7 @@ handleFilesKey st (key, []) =
           exitAndEditFile f (\case
                                 Right d -> st & stDetail .~ parseDetail d
                                 Left e -> st & stDetail .~ []
-                                             & stDebug .~ e
+                                             & stMessage .~ Just (Message e LevelError defaultMessageTtl)
                             )
 
     K.KChar c | (c `elem` ("0123456789" :: [Char])) ->
@@ -122,8 +135,8 @@ handleFilesKey st (key, []) =
         Nothing -> pure st
         Just f -> case readMaybe [c] :: Maybe Int of
                     Just i -> clipLine (i + 1) f >>= \case
-                      Right _ -> pure $ st & stDebug .~ "copied: " <> show i
-                      Left e -> pure $ st & stDebug .~ "error: " <> show e
+                      Right _ -> pure $ st & stMessage .~ Just (Message ("copied: " <> show i) LevelInfo defaultMessageTtl)
+                      Left e -> pure $ st & stMessage .~ Just (Message ("error: " <> show e) LevelInfo defaultMessageTtl)
                     Nothing -> pure st
           
     _ -> runBaseHandler $ st & stDetail .~ []
@@ -145,6 +158,18 @@ handleFilesKey st (key, []) =
 
 handleFilesKey st _ = pure st
 
+
+handleTick :: AppState ui -> Tm.UTCTime -> Action ui (AppState ui)
+handleTick st _ =
+  case st ^. stMessage of
+    Nothing ->
+      pure st
+    Just (Message msg lvl ttl) ->
+      if ttl <= 1
+         then pure $ st & stMessage .~ Nothing
+         else pure $ st & stMessage .~ Just (Message msg lvl (ttl - 1))
+
+  
 parseDetail :: Text -> [DetailLine]
 parseDetail d =
   let ls = Txt.lines d in
@@ -177,8 +202,8 @@ validatePassword pr
 createPassword :: AppState ui -> CN.CreatePasswordResult -> AppState ui
 createPassword st pr =
   let msg = if CN.rSuccess pr
-               then "Password created: " <> (CN.rFolder pr <> "/" <> CN.rName pr)
-               else fromMaybe "Password creation aborted" $ CN.rErrorMessage pr in
+               then Message ("Password created: " <> (CN.rFolder pr <> "/" <> CN.rName pr)) LevelInfo defaultMessageTtl
+               else Message (fromMaybe "Password creation aborted" $ CN.rErrorMessage pr) LevelError defaultMessageTtl in
   
   st & stLastGenPassState .~ (Just . CN.rState $ pr)
-     & stDebug .~ msg
+     & stMessage .~ Just msg

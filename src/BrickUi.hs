@@ -9,6 +9,8 @@ module BrickUi where
 import           Protolude
 import           Control.Lens ((^.), (.~), (%~))
 import           Control.Lens.TH (makeLenses)
+import           Data.Time (UTCTime)
+import qualified Data.Time as Tm
 import qualified Data.Text as Txt
 import qualified Data.Vector as Vec
 import           Brick ((<+>), (<=>))
@@ -24,6 +26,7 @@ import           System.FilePath ((</>))
 import qualified System.Directory as Dir
 import qualified System.Environment as Env
 import           Control.Monad.Free (Free(..))
+import           Control.Concurrent (threadDelay, forkIO)
 --import           Control.Monad.Free.Church as Fr
 import qualified Graphics.Vty as V
 
@@ -35,7 +38,7 @@ data Name = ListDir
           | ListFile
           deriving (Show, Ord, Eq)
           
-data Event = Event
+data Event = EventTick UTCTime
 
 data BrickState = BrickState { _bListDir :: BL.List Name Lib.PassDir
                              , _bListFile :: BL.List Name Lib.PassFile
@@ -54,6 +57,12 @@ main =
 
       chan <- BCh.newBChan 10
 
+      -- Send a tick event every 2 seconds
+      void . forkIO $ forever $ do
+        t <- Tm.getCurrentTime
+        BCh.writeBChan chan $ EventTick t
+        threadDelay 2000000
+
       let st = C.AppState { C._stPassRoot = ps
                              , C._stDetail = []
                              , C._stFocus = C.FoldersControl
@@ -61,7 +70,7 @@ main =
                              , C._stUi = BrickState { _bListDir = BL.list ListDir items 1
                                                     , _bListFile = BL.list ListFile Vec.empty 1
                                                     }
-                             , C._stDebug = "hpass version: " <> C.version
+                             , C._stMessage = Nothing
                              }
               
       void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
@@ -82,6 +91,10 @@ handleEvent st ev =
     (B.VtyEvent ve@(V.EvKey k ms)) -> do
       let a = C.handleKeyPress st (k, ms)
       runPassDsl (handleBaseEvent ve) a
+
+    (B.AppEvent (EventTick time)) -> do
+      let a = C.handleTick st time
+      runPassDsl pure a
       
     _ -> B.continue st
 
@@ -109,9 +122,21 @@ drawFooter :: UIState -> B.Widget Name
 drawFooter st =
   B.padTop (B.Pad 1) $
   B.vLimit 1 $
-  B.withAttr "messageBar" $
-  B.txt (st ^. C.stDebug)
+  drawMessage (st ^. C.stMessage)
 
+
+drawMessage :: Maybe C.Message -> B.Widget Name
+drawMessage Nothing =
+  let v = "hpass version: " <> C.version in
+  drawMessage . Just $ C.Message v C.LevelInfo 1
+drawMessage (Just (C.Message txt lvl _)) =
+  let attr = case lvl of
+               C.LevelError -> "messageError"
+               C.LevelWarn -> "messageWarn"
+               C.LevelInfo -> "messageInfo" in
+
+  B.withAttr attr $
+  B.txt txt
   
 drawListDir :: UIState -> B.Widget Name
 drawListDir st =
@@ -190,7 +215,9 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.bl
                               , ("detailNum"               , B.fg V.red)
                               , ("detailData"              , B.fg V.yellow)
                               , ("detailKey"               , B.fg V.blue)
-                              , ("messageBar"              , B.fg V.white)
+                              , ("messageError"            , B.fg V.red)
+                              , ("messageWarn"             , B.fg V.brightYellow)
+                              , ("messageInfo"             , B.fg V.cyan)
                               ]
 
 ------------------------
