@@ -134,7 +134,9 @@ handleEvent st ev =
         (K.KChar 'g', [K.MAlt]) -> B.continue $ withNewPassword st
         (K.KChar 'g', [K.MMeta]) -> B.continue $ withNewPassword st
         (K.KChar '\t', []) -> B.continue $ st & stFocus %~ BF.focusNext
-        (K.KChar '\t', [K.MShift]) -> B.continue $ st & stFocus %~ BF.focusPrev --TODO not working
+        (K.KDown, []) -> B.continue $ st & stFocus %~ BF.focusNext
+        (K.KUp, []) -> B.continue $ st & stFocus %~ BF.focusPrev
+        (K.KBackTab, []) -> B.continue $ st & stFocus %~ BF.focusPrev
         (_, []) ->
           case BF.focusGetCurrent $ st ^. stFocus of
             Just EditFolder -> handleEdit ek stEditFolder stEditFolder False
