@@ -90,11 +90,11 @@ handleEvent st ev =
     handleBaseEvent ve st' = 
       case st ^. C.stFocus of
         C.FilesControl -> do
-          r <- BL.handleListEventVi (const pure) ve $ st' ^. (C.stUi . bListFile)
+          r <- BL.handleListEventVi BL.handleListEvent ve $ st' ^. (C.stUi . bListFile)
           pure $ st' & (C.stUi . bListFile) .~ r
 
         C.FoldersControl -> do
-          r <- BL.handleListEventVi (const pure) ve $ st' ^. (C.stUi . bListDir)
+          r <- BL.handleListEventVi BL.handleListEvent ve $ st' ^. (C.stUi . bListDir)
           pure $ st' & (C.stUi . bListDir) .~ r
   
 

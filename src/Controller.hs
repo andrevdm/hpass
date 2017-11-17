@@ -101,16 +101,8 @@ handleFilesKey st (key, []) =
     K.KChar '\t' -> focusFolder
     K.KLeft      -> focusFolder
 
-    K.KChar 'l'  -> 
-      getSelectedFile st >>= \case
-        Nothing -> pure st
-        Just f ->
-          getPassDetail f >>= \case
-            Left e -> do
-              logError e
-              pure st
-            Right d -> 
-              pure $ st & stDetail .~ parseDetail d
+    K.KChar 'l'  -> showPass
+    K.KRight     -> showPass
 
     K.KChar 'e' ->
       getSelectedFile st >>= \case
@@ -136,6 +128,17 @@ handleFilesKey st (key, []) =
   where
     focusFolder = pure $ st & stFocus .~ FoldersControl
                             & stDetail .~ []
+
+    showPass =
+      getSelectedFile st >>= \case
+        Nothing -> pure st
+        Just f ->
+          getPassDetail f >>= \case
+            Left e -> do
+              logError e
+              pure st
+            Right d -> 
+              pure $ st & stDetail .~ parseDetail d
 
 handleFilesKey st _ = pure st
 
