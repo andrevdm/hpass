@@ -230,7 +230,7 @@ runPassDsl h a =
       runPassDsl h (n file)
 
     (Free (C.ClipLine line file n)) -> do
-      r <- liftIO $ Lib.runProc "pass" ["show", "--clip=" <> show line, Lib.pfPassPath file]
+      r <- liftIO $ Lib.runProc "pass" ["show", "--clip=" <> show line, Lib.pfPassPath file] Nothing
       let txt = case r of
                   Right _ -> Right ()
                   Left (e, _, _) -> Left e
@@ -251,13 +251,26 @@ runPassDsl h a =
     (Free (C.ExitAndGenPassword st dir fn)) ->
       B.suspendAndResume . liftIO $ do
         r <- CN.runCreatePassword (st ^. C.stLastGenPassState) dir
-        pure . fn $ r
+        if CN.rSuccess r
+          then do
+            let path = CN.rFolder r <> "/" <> CN.rName r
+            void $ Lib.runProc "pass" ["insert", "-f", "-m", path] $ Just (CN.rPassword r)
+
+            if CN.rEditAfter r
+              then do
+                void $ Lib.shell "pass" ["edit", path]
+                pure . fn $ r
+              else 
+                pure . fn $ r
+
+          else
+            pure . fn $ r
 
 
   where
     runPassShow :: Lib.PassFile -> IO (Either Text Text)
     runPassShow file = do
-      r <- Lib.runProc "pass" ["show", Lib.pfPassPath file]
+      r <- Lib.runProc "pass" ["show", Lib.pfPassPath file] Nothing
 
       pure $ case r of
                Right (t, _) -> Right t

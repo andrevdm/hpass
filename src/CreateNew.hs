@@ -87,6 +87,7 @@ makeLenses ''St
 
 data CreatePasswordResult = CreatePasswordResult { rPassword :: Text
                                                  , rSuccess :: Bool
+                                                 , rEditAfter :: Bool
                                                  , rFolder :: Text
                                                  , rName :: Text
                                                  , rState :: PrevState
@@ -385,6 +386,7 @@ createResult :: St -> CreatePasswordResult
 createResult st =
   CreatePasswordResult { rPassword = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditPassword
                        , rSuccess = st ^. stSuccess
+                       , rEditAfter = Map.findWithDefault "X" CboxEditAfter (st ^. stTexts) == "X"
                        , rFolder = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditFolder
                        , rName = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditName
                        , rState = createPrevState st
