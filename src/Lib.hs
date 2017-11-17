@@ -41,7 +41,7 @@ loadPass depth' name' root =
       let passFiles = mkFile <$> sort gpgs
 
       dirs <- filterM Dir.doesDirectoryExist entries
-      passFolders' <- traverse (\p -> go (depth + 1) (Txt.pack $ FP.takeBaseName p) p) $ sort dirs
+      passFolders' <- traverse (\p -> go (depth + 1) (Txt.pack $ FP.takeFileName p) p) $ sort dirs
       let passFolders = filter isValidFolder passFolders'
       
       let passPath = Txt.drop (length root + 1) $ Txt.pack atPath 
