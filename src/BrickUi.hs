@@ -57,6 +57,7 @@ main = do
                          , C._stUi = BrickState { _bListDir = BL.list ListDir items 1
                                                 , _bListFile = BL.list ListFile Vec.empty 1
                                                 }
+                         , C._stLastGenPassState = Nothing
                          , C._stDebug = "..."
                          }
           
@@ -247,9 +248,9 @@ runPassDsl h a =
           Left e -> pure . fn . Left $ "Error getting data: " <> show e
           Right p -> pure . fn . Right $ p
 
-    (Free (C.ExitAndGenPassword dir fn)) ->
+    (Free (C.ExitAndGenPassword st dir fn)) ->
       B.suspendAndResume . liftIO $ do
-        r <- CN.runCreatePassword dir
+        r <- CN.runCreatePassword (st ^. C.stLastGenPassState) dir
         pure . fn $ r
 
 

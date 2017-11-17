@@ -89,29 +89,29 @@ data CreatePasswordResult = CreatePasswordResult { rPassword :: Text
                                                  , rSuccess :: Bool
                                                  , rFolder :: Text
                                                  , rName :: Text
+                                                 , rState :: PrevState
                                                  }
-                          deriving (Show)
 
 
-runCreatePassword :: Text -> IO CreatePasswordResult
-runCreatePassword folder = do
+runCreatePassword :: Maybe PrevState -> Text -> IO CreatePasswordResult
+runCreatePassword pv folder = do
   chan <- BCh.newBChan 10
   seed' <- Crypto.genSeed
   
   let st' = St { _stEditPassword = BE.editor EditPass (Just 1) ""
                , _stEditFolder = BE.editor EditFolder (Just 1) folder
                , _stEditName = BE.editor EditName (Just 1) ""
-               , _stEditLen = BE.editor EditLen (Just 1) "21"
+               , _stEditLen = BE.editor EditLen (Just 1) $ maybe "21" (show . pLen) pv
                , _stSuccess = False
                , _stFocus = BF.focusRing focusable
                , _stDebug = ""
                , _stSeed = seed'
-               , _stTexts = Map.fromList [ (CboxNum, "X")
-                                         , (CboxCaps, "X")
-                                         , (CboxLower, "X")
-                                         , (CboxSymbol, "X")
-                                         , (CboxEditAfter, "X")
-                                         , (CboxRemoveAmbig, ".")
+               , _stTexts = Map.fromList [ (CboxNum, maybe "X" (cb . pUseNum) pv)
+                                         , (CboxCaps, maybe "X" (cb . pUseCaps) pv)
+                                         , (CboxLower, maybe "X" (cb . pUseLower) pv)
+                                         , (CboxSymbol, maybe "X" (cb . pUseSymbol) pv)
+                                         , (CboxEditAfter, maybe "X" (cb . pEditAfter) pv)
+                                         , (CboxRemoveAmbig, maybe "." (cb . pRemoveAmbig) pv)
                                          ]
                }
 
@@ -124,6 +124,9 @@ runCreatePassword folder = do
 
   stResult <- B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
   pure $ createResult stResult
+
+  where
+    cb b = if b then "X" else "."
 
 
 app :: B.App St Event Name
@@ -320,7 +323,7 @@ drawUI st =
       then
         (BM.markup $ pre @? "titleText")
         <+>
-        (BM.markup $ accel @? "titleUnderline")
+        (BM.markup $ accel @? "titleAccel")
         <+>
         (BM.markup $ post @? "titleText")
       else
@@ -338,7 +341,7 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr,         V.white `B.on` V.blue)
                               , (BE.editFocusedAttr,  V.black `B.on` V.yellow)
                               , (customAttr,          B.fg V.cyan)
                               , ("titleText",         B.fg V.green)
-                              , ("titleUnderline",    V.withStyle (V.withForeColor V.defAttr V.brightGreen) V.underline)
+                              , ("titleAccel",        V.withStyle (V.withForeColor V.defAttr V.brightGreen) V.underline)
                               , ("cbox",              V.white `B.on` V.blue)
                               , ("cboxFocus",         V.black `B.on` V.yellow)
                               , ("button",            V.defAttr)
@@ -362,6 +365,7 @@ getFocusKey n =
     ButOk           -> ("",        'o', "k")
     ButCancel       -> ("Cance",   'l', "")
 
+
 focusMap :: Map.Map Char (Name, (Text, Char, Text))
 focusMap = Map.fromList $ go <$> focusable
   where
@@ -383,6 +387,7 @@ createResult st =
                        , rSuccess = st ^. stSuccess
                        , rFolder = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditFolder
                        , rName = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditName
+                       , rState = createPrevState st
                        }
 
 createOptions :: St -> Crypto.PasswordOptions
@@ -394,3 +399,24 @@ createOptions st =
                         , Crypto.poRemoveAmbig = Map.findWithDefault "X" CboxRemoveAmbig (st ^. stTexts) == "X"
                         , Crypto.poLength = fromMaybe 21 . readMaybe . Txt.unpack . Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditLen
                         }
+
+
+data PrevState = PrevState { pLen :: Int
+                           , pUseNum :: Bool
+                           , pUseCaps :: Bool
+                           , pUseLower :: Bool
+                           , pUseSymbol :: Bool
+                           , pEditAfter :: Bool
+                           , pRemoveAmbig :: Bool
+                           }
+
+createPrevState :: St -> PrevState
+createPrevState st =
+ PrevState { pLen = fromMaybe 21 . readMaybe . Txt.unpack . Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditLen
+           , pUseNum = Map.findWithDefault "X" CboxNum (st ^. stTexts) == "X"
+           , pUseCaps = Map.findWithDefault "X" CboxCaps (st ^. stTexts) == "X"
+           , pUseLower = Map.findWithDefault "X" CboxLower (st ^. stTexts) == "X"
+           , pUseSymbol = Map.findWithDefault "X" CboxSymbol (st ^. stTexts) == "X"
+           , pEditAfter = Map.findWithDefault "X" CboxEditAfter (st ^. stTexts) == "X"
+           , pRemoveAmbig = Map.findWithDefault "X" CboxRemoveAmbig (st ^. stTexts) == "X"
+           }

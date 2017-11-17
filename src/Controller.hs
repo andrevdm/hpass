@@ -32,6 +32,7 @@ data AppState ui = AppState { _stPassRoot :: Lib.PassDir
                             , _stDetail :: [DetailLine]
                             , _stFocus :: Name
                             , _stUi :: ui
+                            , _stLastGenPassState :: Maybe CN.PrevState
                             , _stDebug :: Text
                             }
 
@@ -49,7 +50,7 @@ data ActionF ui next = Halt (AppState ui)
 
                      -- | Note that ExitAnd*** actions terminate the DSL
                      | ExitAndEditFile Lib.PassFile (Either Text Text -> AppState ui)
-                     | ExitAndGenPassword Text (CN.CreatePasswordResult -> AppState ui)
+                     | ExitAndGenPassword (AppState ui) Text (CN.CreatePasswordResult -> AppState ui)
                      deriving (Functor)
 
 makeFree ''ActionF
@@ -65,7 +66,7 @@ handleKeyPress st (key, ms) =
     K.KChar 'n'  -> 
       getSelectedDir st >>= \case
         Nothing -> pure st
-        Just d -> exitAndGenPassword (Lib.pdPassPath d) (createPassword st)
+        Just d -> exitAndGenPassword st (Lib.pdPassPath d) (createPassword st)
 
     _ ->
       case st ^. stFocus of
@@ -158,4 +159,5 @@ parseDetail d =
 
 createPassword :: AppState ui -> CN.CreatePasswordResult -> AppState ui
 createPassword st pr =
-  st
+  st & stLastGenPassState .~ (Just . CN.rState $ pr)
+     & stDebug .~ (show $ CN.pLen $ CN.rState pr)
