@@ -165,5 +165,9 @@ parseDetail d =
 
 createPassword :: AppState ui -> CN.CreatePasswordResult -> AppState ui
 createPassword st pr =
+  let msg = if CN.rSuccess pr
+               then "Password created: " <> (CN.rFolder pr <> "/" <> CN.rName pr)
+               else "Password creation aborted" in
+  
   st & stLastGenPassState .~ (Just . CN.rState $ pr)
-     & stDebug .~ (show $ CN.pLen $ CN.rState pr)
+     & stDebug .~ msg
