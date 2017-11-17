@@ -84,13 +84,13 @@ data CreatePasswordResult = CreatePasswordResult { rPassword :: Text
                           deriving (Show)
 
 
-runCreatePassword :: IO CreatePasswordResult
-runCreatePassword = do
+runCreatePassword :: Text -> IO CreatePasswordResult
+runCreatePassword folder = do
   chan <- BCh.newBChan 10
   seed' <- Crypto.genSeed
   
   let st' = St { _stEditPassword = BE.editor EditPass (Just 1) ""
-               , _stEditFolder = BE.editor EditFolder (Just 1) ""
+               , _stEditFolder = BE.editor EditFolder (Just 1) folder
                , _stEditName = BE.editor EditName (Just 1) ""
                , _stEditLen = BE.editor EditLen (Just 1) "21"
                , _stSuccess = False
@@ -110,6 +110,7 @@ runCreatePassword = do
 
   let st = st' { _stEditPassword = BE.editor EditPass (Just 1) pwd
                , _stSeed = seed
+               , _stFocus = BF.focusNext (_stFocus st')
                }
 
   stResult <- B.customMain (V.mkVty V.defaultConfig) (Just chan) app st

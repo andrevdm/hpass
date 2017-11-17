@@ -25,6 +25,7 @@ import           Control.Monad.Free (Free(..))
 import qualified Graphics.Vty as V
 
 import qualified Lib
+import qualified CreateNew as CN
 import qualified Controller as C
 
 data Name = ListDir
@@ -41,6 +42,8 @@ makeLenses ''BrickState
 
 type UIState = C.AppState BrickState
 
+  --r <- CreateNew.runCreatePassword
+  --print r
 main :: IO ()
 main = do
   ps <- Lib.loadPass 0 "/" "/home/andre/.password-store"
@@ -236,13 +239,19 @@ runPassDsl h a =
       txt <- liftIO $ runPassShow file
       runPassDsl h $ n txt
 
-    (Free (C.ExternEditFile file fn)) ->
+    (Free (C.ExitAndEditFile file fn)) ->
       B.suspendAndResume . liftIO $ do
         void $ Lib.shell "pass" ["edit", Lib.pfPassPath file]
 
         runPassShow file >>= \case
           Left e -> pure . fn . Left $ "Error getting data: " <> show e
           Right p -> pure . fn . Right $ p
+
+    (Free (C.ExitAndGenPassword dir fn)) ->
+      B.suspendAndResume . liftIO $ do
+        r <- CN.runCreatePassword dir
+        pure . fn $ r
+
 
   where
     runPassShow :: Lib.PassFile -> IO (Either Text Text)

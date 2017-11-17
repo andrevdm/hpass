@@ -21,6 +21,7 @@ data PassFile = PassFile { pfName :: Text
 
 data PassDir = PassDir { pdName :: Text
                        , pdPath :: FilePath
+                       , pdPassPath :: Text
                        , pdFiles :: [PassFile]
                        , pdChildren :: [PassDir]
                        , pdDepth :: Int
@@ -43,7 +44,8 @@ loadPass depth' name' root =
       passFolders' <- traverse (\p -> go (depth + 1) (Txt.pack $ FP.takeBaseName p) p) $ sort dirs
       let passFolders = filter isValidFolder passFolders'
       
-      pure $ PassDir name atPath passFiles passFolders depth
+      let passPath = Txt.drop (length root + 1) $ Txt.pack atPath 
+      pure $ PassDir name atPath passPath passFiles passFolders depth
 
     isValidFolder p = pdName p /= ".git" && length (pdChildren p) + length (pdFiles p) > 0
 

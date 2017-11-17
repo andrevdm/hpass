@@ -17,6 +17,7 @@ import           Control.Monad.Free
 import qualified Graphics.Vty.Input.Events as K
 
 import qualified Lib
+import qualified CreateNew as CN
 
 data DetailLine = DetailLine { dlOriginal :: Text
                              , dlKey :: Text
@@ -45,8 +46,10 @@ data ActionF ui next = Halt (AppState ui)
                      | ShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
                      | RunBaseHandler (AppState ui) (AppState ui -> next)
                      | ClipLine Int Lib.PassFile (Either Int () -> next)
-                     -- | Note that ExternalEditFile terminates the DSL
-                     | ExternEditFile Lib.PassFile (Either Text Text -> AppState ui)
+
+                     -- | Note that ExitAnd*** actions terminate the DSL
+                     | ExitAndEditFile Lib.PassFile (Either Text Text -> AppState ui)
+                     | ExitAndGenPassword Text (CN.CreatePasswordResult -> AppState ui)
                      deriving (Functor)
 
 makeFree ''ActionF
@@ -59,6 +62,11 @@ handleKeyPress st (key, ms) =
   case key of
     K.KEsc      -> halt st
     K.KChar 'q' -> halt st
+    K.KChar 'n'  -> 
+      getSelectedDir st >>= \case
+        Nothing -> pure st
+        Just d -> exitAndGenPassword (Lib.pdPassPath d) (createPassword st)
+
     _ ->
       case st ^. stFocus of
         FoldersControl -> handleFoldersKey st (key, ms)
@@ -83,7 +91,7 @@ handleFoldersKey st (key, _) = do
 
 
 handleFilesKey :: AppState ui -> (K.Key, [K.Modifier]) -> Action ui (AppState ui)
-handleFilesKey st (key, _) =
+handleFilesKey st (key, []) =
   case key of
     K.KChar 'h'  -> focusFolder
     K.KChar '\t' -> focusFolder
@@ -104,11 +112,11 @@ handleFilesKey st (key, _) =
       getSelectedFile st >>= \case
         Nothing -> pure st
         Just f -> 
-          externEditFile f (\case
-                               Right d -> st & stDetail .~ parseDetail d
-                               Left e -> st & stDetail .~ []
-                                            & stDebug .~ e
-                           )
+          exitAndEditFile f (\case
+                                Right d -> st & stDetail .~ parseDetail d
+                                Left e -> st & stDetail .~ []
+                                             & stDebug .~ e
+                            )
 
     K.KChar c | (c `elem` ("0123456789" :: [Char])) ->
       getSelectedFile st >>= \case
@@ -124,6 +132,8 @@ handleFilesKey st (key, _) =
   where
     focusFolder = pure $ st & stFocus .~ FoldersControl
                             & stDetail .~ []
+
+handleFilesKey st _ = pure st
 
 parseDetail :: Text -> [DetailLine]
 parseDetail d =
@@ -144,3 +154,8 @@ parseDetail d =
       if Txt.null pwd
         then s
         else Txt.replace pwd "*****" s
+
+
+createPassword :: AppState ui -> CN.CreatePasswordResult -> AppState ui
+createPassword st pr =
+  st
