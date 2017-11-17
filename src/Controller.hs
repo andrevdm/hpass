@@ -53,7 +53,10 @@ data ActionF ui next = Halt (AppState ui)
 
                      -- | Note that ExitAnd*** actions terminate the DSL
                      | ExitAndEditFile Lib.PassFile (Either Text Text -> AppState ui)
-                     | ExitAndGenPassword (AppState ui) Text (CN.CreatePasswordResult -> AppState ui)
+                     | ExitAndGenPassword (AppState ui)
+                                          Text
+                                          (CN.CreatePasswordResult -> Maybe Text)
+                                          (CN.CreatePasswordResult -> AppState ui)
                      deriving (Functor)
 
 makeFree ''ActionF
@@ -69,7 +72,7 @@ handleKeyPress st (key, ms) =
     K.KChar 'n'  -> 
       getSelectedDir st >>= \case
         Nothing -> pure st
-        Just d -> exitAndGenPassword st (Lib.pdPassPath d) (createPassword st)
+        Just d -> exitAndGenPassword st (Lib.pdPassPath d) validatePassword (createPassword st)
 
     _ ->
       case st ^. stFocus of
@@ -163,11 +166,19 @@ parseDetail d =
         else Txt.replace pwd "*****" s
 
 
+validatePassword :: CN.CreatePasswordResult -> Maybe Text
+validatePassword pr 
+  | not (CN.rSuccess pr) = Just "Password creation cancelled"
+  | Txt.length (CN.rPassword pr) < 3 = Just "Password creation aborted. Password must be longer than 3 chars"
+  | Txt.null (CN.rName pr) = Just "Password creation aborted. Name is required"
+  | otherwise = Nothing
+
+
 createPassword :: AppState ui -> CN.CreatePasswordResult -> AppState ui
 createPassword st pr =
   let msg = if CN.rSuccess pr
                then "Password created: " <> (CN.rFolder pr <> "/" <> CN.rName pr)
-               else "Password creation aborted" in
+               else fromMaybe "Password creation aborted" $ CN.rErrorMessage pr in
   
   st & stLastGenPassState .~ (Just . CN.rState $ pr)
      & stDebug .~ msg

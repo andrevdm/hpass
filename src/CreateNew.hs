@@ -91,6 +91,7 @@ data CreatePasswordResult = CreatePasswordResult { rPassword :: Text
                                                  , rFolder :: Text
                                                  , rName :: Text
                                                  , rState :: PrevState
+                                                 , rErrorMessage :: Maybe Text
                                                  }
 
 
@@ -390,6 +391,7 @@ createResult st =
                        , rFolder = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditFolder
                        , rName = Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditName
                        , rState = createPrevState st
+                       , rErrorMessage = Nothing
                        }
 
 createOptions :: St -> Crypto.PasswordOptions

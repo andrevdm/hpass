@@ -253,23 +253,26 @@ runPassDsl h a =
           Left e -> pure . fn . Left $ "Error getting data: " <> show e
           Right p -> pure . fn . Right $ p
 
-    (Free (C.ExitAndGenPassword st dir fn)) ->
+    (Free (C.ExitAndGenPassword st dir validate create)) ->
       B.suspendAndResume . liftIO $ do
         r <- CN.runCreatePassword (st ^. C.stLastGenPassState) dir
-        if CN.rSuccess r
-          then do
+
+        case validate r of
+          Nothing -> do
             let path = CN.rFolder r <> "/" <> CN.rName r
             void $ Lib.runProc "pass" ["insert", "-f", "-m", path] $ Just (CN.rPassword r)
 
             if CN.rEditAfter r
               then do
                 void $ Lib.shell "pass" ["edit", path]
-                pure . fn $ r
+                pure . create $ r
               else 
-                pure . fn $ r
+                pure . create $ r
 
-          else
-            pure . fn $ r
+          Just err ->
+            pure . create $ r { CN.rErrorMessage = Just err
+                              , CN.rSuccess = False
+                              }
 
 
   where
