@@ -71,6 +71,7 @@ main =
                                                     , _bListFile = BL.list ListFile Vec.empty 1
                                                     }
                              , C._stMessage = Nothing
+                             , C._stShowHelp = True
                              }
               
       void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
@@ -113,7 +114,7 @@ handleEvent st ev =
 
 drawUI :: UIState -> [B.Widget Name]
 drawUI st =
-  [ B.padTop (B.Pad 1) (drawListDir st <+> drawListFile st <+> drawDetail st)
+  [ B.padTop (B.Pad 1) (drawListDir st <+> drawListFile st <+> drawDetail st <+> drawHelp st)
     <=>
     drawFooter st
   ] 
@@ -202,7 +203,56 @@ listDrawFile :: Bool -> Lib.PassFile -> B.Widget a
 listDrawFile _ f =
   B.str . Txt.unpack $ Lib.pfName f
 
+
+drawHelp :: UIState -> B.Widget Name
+drawHelp st =
+  if st ^. C.stShowHelp
+  then
+    B.hLimit 80 $
+    B.padTop (B.Pad 8) $
+    B.padBottom (B.Pad 2) $
+    B.withBorderStyle BBS.unicodeRounded $
+    BB.borderWithLabel (B.str "help") $
+    B.padAll 1 $
+
+
+    header "Global" <=>
+    help "?" "toggle help" <=>
+    help "n" "create new password" <=>
+    help "q/esc" "exit" <=>
+    B.str " " <=>
+    header "Folders" <=>
+    help "down/up" "next/prev folder" <=>
+    help "j/k" "next/prev folder" <=>
+    help "tab/right/l" "go to passwords" <=>
+    B.str " " <=>
+    header "Passwords" <=>
+    help "down/up" "next/prev password file" <=>
+    help "j/k" "next/prev password file" <=>
+    help "right" "show selected password info" <=>
+    help "tab/left/h" "go to folders" <=>
+    B.str " " <=>
+    header "Selected password file" <=>
+    help "0-9" "copy line to clipboard" <=>
+    help "" "(cleard after 45 seconds)"
   
+  else
+    B.emptyWidget
+
+  where
+    header h =
+      BM.markup $ h @? "helpHeader"
+
+    help l r =
+      B.txt "  " 
+      <+>
+      BM.markup (l @? "helpKey")
+      <+>
+      B.txt (Txt.replicate (15 - Txt.length l) " " <> if Txt.null l then "  " else "- ")
+      <+>
+      BM.markup (r @? "helpText")
+  
+
 customAttr :: BA.AttrName
 customAttr = BL.listSelectedAttr <> "custom"
 
@@ -218,6 +268,9 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.bl
                               , ("messageError"            , B.fg V.red)
                               , ("messageWarn"             , B.fg V.brightYellow)
                               , ("messageInfo"             , B.fg V.cyan)
+                              , ("helpHeader"              , V.withStyle (V.withStyle (B.fg V.green) V.bold) V.underline)
+                              , ("helpKey"                 , B.fg V.green)
+                              , ("helpText"                , B.fg V.green)
                               ]
 
 ------------------------

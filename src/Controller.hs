@@ -8,7 +8,7 @@
 module Controller where
 
 import           Protolude
-import           Control.Lens ((^.), (.~))
+import           Control.Lens ((^.), (.~), (%~))
 import           Control.Lens.TH (makeLenses)
 import qualified Data.Text as Txt
 import qualified Data.Time as Tm
@@ -21,7 +21,7 @@ import qualified Lib
 import qualified CreateNew as CN
 
 version :: Text
-version = "0.1.3.0"
+version = "0.1.3.2"
 
 data Level = LevelInfo
            | LevelWarn
@@ -50,6 +50,7 @@ data AppState ui = AppState { _stPassRoot :: Lib.PassDir
                             , _stUi :: ui
                             , _stLastGenPassState :: Maybe CN.PrevState
                             , _stMessage :: Maybe Message
+                            , _stShowHelp :: Bool
                             }
 
 makeLenses ''AppState
@@ -82,6 +83,7 @@ handleKeyPress st (key, ms) =
   case key of
     K.KEsc      -> halt st
     K.KChar 'q' -> halt st
+    K.KChar '?' -> pure $ st & stShowHelp %~ not
     K.KChar 'n'  -> 
       getSelectedDir st >>= \case
         Nothing -> pure st
@@ -155,6 +157,7 @@ handleFilesKey st (key, []) =
               pure st
             Right d -> 
               pure $ st & stDetail .~ parseDetail d
+                        & stShowHelp .~ False
 
 handleFilesKey st _ = pure st
 
