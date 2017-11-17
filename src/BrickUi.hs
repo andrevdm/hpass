@@ -20,6 +20,9 @@ import qualified Brick.AttrMap as BA
 import qualified Brick.Widgets.List as BL
 import qualified Brick.Widgets.Border as BB
 import qualified Brick.Widgets.Border.Style as BBS
+import           System.FilePath ((</>))
+import qualified System.Directory as Dir
+import qualified System.Environment as Env
 import           Control.Monad.Free (Free(..))
 --import           Control.Monad.Free.Church as Fr
 import qualified Graphics.Vty as V
@@ -42,26 +45,28 @@ makeLenses ''BrickState
 
 type UIState = C.AppState BrickState
 
-  --r <- CreateNew.runCreatePassword
-  --print r
 main :: IO ()
-main = do
-  ps <- Lib.loadPass 0 "/" "/home/andre/.password-store"
-  let items = Vec.fromList $ Lib.flattenDirs ps
+main = 
+  getPassRoot >>= \case
+    Just root -> do
+      ps <- Lib.loadPass 0 "/" root
+      let items = Vec.fromList $ Lib.flattenDirs ps
 
-  chan <- BCh.newBChan 10
+      chan <- BCh.newBChan 10
 
-  let st = C.AppState { C._stPassRoot = ps
-                         , C._stDetail = []
-                         , C._stFocus = C.FoldersControl
-                         , C._stUi = BrickState { _bListDir = BL.list ListDir items 1
-                                                , _bListFile = BL.list ListFile Vec.empty 1
-                                                }
-                         , C._stLastGenPassState = Nothing
-                         , C._stDebug = "..."
-                         }
-          
-  void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
+      let st = C.AppState { C._stPassRoot = ps
+                             , C._stDetail = []
+                             , C._stFocus = C.FoldersControl
+                             , C._stLastGenPassState = Nothing
+                             , C._stUi = BrickState { _bListDir = BL.list ListDir items 1
+                                                    , _bListFile = BL.list ListFile Vec.empty 1
+                                                    }
+                             , C._stDebug = ""
+                             }
+              
+      void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
+    Nothing ->
+      putText "Pass root path not found"
 
 app :: B.App UIState Event Name
 app = B.App { B.appDraw = drawUI
@@ -275,3 +280,26 @@ runPassDsl h a =
       pure $ case r of
                Right (t, _) -> Right t
                Left (_, o, err) -> Left $ o <> "\n\n" <> err
+
+
+getPassRoot :: IO (Maybe FilePath)
+getPassRoot = 
+  Env.lookupEnv "PASSWORD_STORE_DIR" >>= \case
+    Just p ->
+      pure $ Just p
+
+    Nothing -> do
+      root <- Dir.getHomeDirectory
+
+      let ps = [ root </> ".password-store"
+               , root </> "password-store"
+               ]
+
+      pse <- sequenceA $ (\d -> do
+                                  e <- Dir.doesDirectoryExist d
+                                  pure (d, e)
+                         ) <$> ps
+
+      case filter snd pse of
+        ((d, True) : _) -> pure $ Just d
+        _ -> pure Nothing
