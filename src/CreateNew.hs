@@ -58,6 +58,15 @@ focusable = [ EditFolder
             , ButOk
             , ButCancel
             ]
+            
+checkboxes :: [Name]
+checkboxes = [ CboxCaps
+             , CboxLower
+             , CboxNum
+             , CboxSymbol
+             , CboxRemoveAmbig
+             , CboxEditAfter
+             ]
 
 data Event = Event
   
@@ -147,19 +156,15 @@ handleEvent st ev =
             Just ButOk -> handleButOk k
             Just ButCancel -> handlButCancel k
 
-            Just c | c `elem` [ CboxCaps
-                              , CboxLower
-                              , CboxNum
-                              , CboxSymbol
-                              , CboxRemoveAmbig
-                              , CboxEditAfter
-                              ] -> handleCbox c k
+            Just c | c `elem` checkboxes -> handleCbox c k
   
             _ -> B.continue st
 
         (K.KChar c, [m]) | m `elem` [K.MMeta, K.MAlt] ->
           case Map.lookup c focusMap of
-            Just (n, _) -> B.continue $ setFocus n
+            Just (n, _) -> case n of
+                             x | x `elem` checkboxes -> B.continue $ toggleCbox st n
+                             _ -> B.continue $ setFocus n
             Nothing -> B.continue st
 
         _ ->
@@ -183,16 +188,8 @@ handleEvent st ev =
     
     handleCbox n k =
       if (k == K.KEnter) || (k == K.KChar ' ') 
-      then
-        let toggle = Map.alter (\case
-                                   Just "." -> Just "X"
-                                   _ -> Just ".")
-                     n in
-
-        let update = if n /= CboxEditAfter then withNewPassword else identity in
-        B.continue . update $ st & stTexts %~ toggle
-      else
-        B.continue st
+      then B.continue $ toggleCbox st n
+      else B.continue st
     
     handleEdit ek get' set updatePwd = do  --TODO fix needing get and set
       r <- BE.handleEditorEvent ek (st ^. get')
@@ -208,6 +205,17 @@ handleEvent st ev =
         K.KDel -> True
         K.KBS -> True
         _ -> False
+
+
+toggleCbox :: St -> Name -> St
+toggleCbox st n =
+  let toggle = Map.alter (\case
+                             Just "." -> Just "X"
+                             _ -> Just ".")
+               n in
+
+  let update = if n /= CboxEditAfter then withNewPassword else identity in
+  update $ st & stTexts %~ toggle
 
 
 drawUI :: St -> [B.Widget Name]
