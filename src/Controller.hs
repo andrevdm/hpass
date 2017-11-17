@@ -19,6 +19,9 @@ import qualified Graphics.Vty.Input.Events as K
 import qualified Lib
 import qualified CreateNew as CN
 
+version :: Text
+version = "0.1.2.0"
+
 data DetailLine = DetailLine { dlOriginal :: Text
                              , dlKey :: Text
                              , dlValue :: Text

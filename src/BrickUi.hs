@@ -61,7 +61,7 @@ main =
                              , C._stUi = BrickState { _bListDir = BL.list ListDir items 1
                                                     , _bListFile = BL.list ListFile Vec.empty 1
                                                     }
-                             , C._stDebug = ""
+                             , C._stDebug = "hpass version: " <> C.version
                              }
               
       void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
@@ -190,7 +190,7 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.bl
                               , ("detailNum"               , B.fg V.red)
                               , ("detailData"              , B.fg V.yellow)
                               , ("detailKey"               , B.fg V.blue)
-                              , ("messageBar"              , B.fg V.brightYellow)
+                              , ("messageBar"              , B.fg V.white)
                               ]
 
 ------------------------
