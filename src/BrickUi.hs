@@ -64,19 +64,21 @@ main =
         threadDelay 2000000
 
       let st = C.AppState { C._stPassRoot = ps
-                             , C._stDetail = []
-                             , C._stFocus = C.FoldersControl
-                             , C._stLastGenPassState = Nothing
-                             , C._stUi = BrickState { _bListDir = BL.list ListDir items 1
-                                                    , _bListFile = BL.list ListFile Vec.empty 1
-                                                    }
-                             , C._stMessage = Nothing
-                             , C._stShowHelp = True
-                             }
+                          , C._stDetail = []
+                          , C._stFocus = C.FoldersControl
+                          , C._stLastGenPassState = Nothing
+                          , C._stUi = BrickState { _bListDir = BL.list ListDir items 1
+                                                 , _bListFile = BL.list ListFile Vec.empty 1
+                                                 }
+                          , C._stMessage = Nothing
+                          , C._stShowHelp = True
+                          }
               
       void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
+
     Nothing ->
       putText "Pass root path not found"
+
 
 app :: B.App UIState Event Name
 app = B.App { B.appDraw = drawUI
@@ -85,6 +87,7 @@ app = B.App { B.appDraw = drawUI
             , B.appStartEvent = pure
             , B.appAttrMap = const theMap
             }
+
 
 handleEvent :: UIState -> B.BrickEvent Name Event -> B.EventM Name (B.Next UIState)
 handleEvent st ev =
@@ -113,11 +116,12 @@ handleEvent st ev =
   
 
 drawUI :: UIState -> [B.Widget Name]
-drawUI st =
+drawUI st = 
   [ B.padTop (B.Pad 1) (drawListDir st <+> drawListFile st <+> drawDetail st <+> drawHelp st)
     <=>
     drawFooter st
   ] 
+
 
 drawFooter :: UIState -> B.Widget Name
 drawFooter st =
@@ -277,7 +281,7 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.bl
 ------------------------
 
 runPassDsl :: (UIState -> B.EventM Name UIState)
-           -> C.Action BrickState (C.AppState BrickState)
+           -> C.UiAction BrickState (C.AppState BrickState)
            -> B.EventM Name (B.Next UIState)
 runPassDsl h a =
   case a of

@@ -55,7 +55,7 @@ data AppState ui = AppState { _stPassRoot :: Lib.PassDir
 
 makeLenses ''AppState
 
-data ActionF ui next = Halt (AppState ui)
+data UiActionF ui next = Halt (AppState ui)
                      | GetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
                      | GetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
                      | GetPassDetail Lib.PassFile (Either Text Text -> next)
@@ -73,12 +73,11 @@ data ActionF ui next = Halt (AppState ui)
                                           (CN.CreatePasswordResult -> AppState ui)
                      deriving (Functor)
 
-makeFree ''ActionF
---type Action ui = F (ActionF ui)
-type Action ui = Free (ActionF ui)
+makeFree ''UiActionF
+type UiAction ui = Free (UiActionF ui)
 
 
-handleKeyPress :: AppState ui -> (K.Key, [K.Modifier]) -> Action ui (AppState ui)
+handleKeyPress :: AppState ui -> (K.Key, [K.Modifier]) -> UiAction ui (AppState ui)
 handleKeyPress st (key, ms) =
   case key of
     K.KEsc      -> halt st
@@ -95,7 +94,7 @@ handleKeyPress st (key, ms) =
         FilesControl -> handleFilesKey st (key, ms)
 
 
-handleFoldersKey :: AppState ui -> (K.Key, [K.Modifier]) -> Action ui (AppState ui)
+handleFoldersKey :: AppState ui -> (K.Key, [K.Modifier]) -> UiAction ui (AppState ui)
 handleFoldersKey st (key, _) = do
   st' <- case key of
            K.KChar 'l'  -> focusFile
@@ -112,7 +111,7 @@ handleFoldersKey st (key, _) = do
                           & stDetail .~ []
 
 
-handleFilesKey :: AppState ui -> (K.Key, [K.Modifier]) -> Action ui (AppState ui)
+handleFilesKey :: AppState ui -> (K.Key, [K.Modifier]) -> UiAction ui (AppState ui)
 handleFilesKey st (key, []) =
   case key of
     K.KChar 'h'  -> focusFolder
@@ -162,7 +161,7 @@ handleFilesKey st (key, []) =
 handleFilesKey st _ = pure st
 
 
-handleTick :: AppState ui -> Tm.UTCTime -> Action ui (AppState ui)
+handleTick :: AppState ui -> Tm.UTCTime -> UiAction ui (AppState ui)
 handleTick st _ =
   case st ^. stMessage of
     Nothing ->
