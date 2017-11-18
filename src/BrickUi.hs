@@ -228,6 +228,7 @@ drawHelp st =
     B.str " " <=>
     header "Passwords" <=>
     help "down/up" "next/prev password file" <=>
+    help "e" "edit selected password file in vim" <=>
     help "j/k" "next/prev password file" <=>
     help "right" "show selected password info" <=>
     help "tab/left/h" "go to folders" <=>
