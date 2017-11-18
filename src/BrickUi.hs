@@ -94,11 +94,11 @@ handleEvent st ev =
   case ev of
     (B.VtyEvent ve@(V.EvKey k ms)) -> do
       let a = C.handleKeyPress st (k, ms)
-      runPassDsl (handleBaseEvent ve) a
+      runUiDsl (handleBaseEvent ve) a
 
     (B.AppEvent (EventTick time)) -> do
       let a = C.handleTick st time
-      runPassDsl pure a
+      runUiDsl pure a
       
     _ -> B.continue st
 
@@ -116,7 +116,10 @@ handleEvent st ev =
   
 
 drawUI :: UIState -> [B.Widget Name]
-drawUI st = 
+drawUI st' =
+  let a = C.preDrawUI st' in
+  let st = runStateDsl a in
+  
   [ B.padTop (B.Pad 1) (drawListDir st <+> drawListFile st <+> drawDetail st <+> drawHelp st)
     <=>
     drawFooter st
@@ -280,55 +283,33 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.bl
 
 ------------------------
 
-runPassDsl :: (UIState -> B.EventM Name UIState)
-           -> C.UiAction BrickState (C.AppState BrickState)
+runUiDsl :: (UIState -> B.EventM Name UIState)
+           -> C.UiAction BrickState UIState
            -> B.EventM Name (B.Next UIState)
-runPassDsl h a =
+runUiDsl h a =
   case a of
-    (Pure st) ->
-      B.continue st
-
-    (Free (C.Halt st)) ->
-      B.halt st
-
-    (Free (C.ClearFiles st n)) -> do
-      let st' = st & (C.stUi . bListFile) %~ BL.listClear
-      runPassDsl h (n st')
-    
-    (Free (C.ShowFiles st fs n)) -> do
-      let items = Vec.fromList fs
-      let st' = st & (C.stUi . bListFile) .~ BL.list ListFile items 1
-      runPassDsl h (n st')
+    (Pure st) -> B.continue st
+    (Free (C.Halt st)) -> B.halt st
+    (Free (C.LogError st e n)) -> runUiDsl h (n $ stateLogError st e)
+    (Free (C.ClearFiles st n)) -> runUiDsl h (n  $ stateClearFiles st)
+    (Free (C.ShowFiles st fs n)) -> runUiDsl h (n $ stateShowFiles st fs)
+    (Free (C.GetSelectedDir st n)) -> runUiDsl h (n $ stateGetSelectedDir st)
+    (Free (C.GetSelectedFile st n)) -> runUiDsl h (n $ stateGetSelectedFile st)
 
     (Free (C.RunBaseHandler st n)) -> do
       st' <- h st
-      runPassDsl h (n st')
-
-    (Free (C.LogError _ n)) -> 
-      runPassDsl h n
-
-    (Free (C.GetSelectedDir st n)) -> do
-      let dir = case BL.listSelectedElement (st ^. (C.stUi . bListDir)) of
-                  Just (_, d) -> Just d
-                  Nothing -> Nothing
-      runPassDsl h (n dir)
-
-    (Free (C.GetSelectedFile st n)) -> do
-      let file = case BL.listSelectedElement (st ^. (C.stUi . bListFile)) of
-                   Just (_, f) -> Just f
-                   Nothing -> Nothing
-      runPassDsl h (n file)
+      runUiDsl h (n st')
 
     (Free (C.ClipLine line file n)) -> do
       r <- liftIO $ Lib.runProc "pass" ["show", "--clip=" <> show line, Lib.pfPassPath file] Nothing
       let txt = case r of
                   Right _ -> Right ()
                   Left (e, _, _) -> Left e
-      runPassDsl h $ n txt
+      runUiDsl h $ n txt
 
     (Free (C.GetPassDetail file n)) -> do
       txt <- liftIO $ runPassShow file
-      runPassDsl h $ n txt
+      runUiDsl h $ n txt
 
     (Free (C.ExitAndEditFile file fn)) ->
       B.suspendAndResume . liftIO $ do
@@ -369,6 +350,45 @@ runPassDsl h a =
                Right (t, _) -> Right t
                Left (_, o, err) -> Left $ o <> "\n\n" <> err
 
+------------------------
+
+runStateDsl :: C.StateAction BrickState UIState
+            -> UIState
+runStateDsl a =
+  case a of
+    (Pure st) -> st
+    (Free (C.StLogError st e n)) -> runStateDsl (n $ stateLogError st e)
+    (Free (C.StClearFiles st n)) -> runStateDsl (n $ stateClearFiles st)
+    (Free (C.StShowFiles st fs n)) -> runStateDsl (n $ stateShowFiles st fs)
+    (Free (C.StGetSelectedDir st n)) -> runStateDsl (n $ stateGetSelectedDir st)
+    (Free (C.StGetSelectedFile st n)) -> runStateDsl (n $ stateGetSelectedFile st)
+
+
+stateClearFiles :: UIState -> UIState
+stateClearFiles st =
+  st & (C.stUi . bListFile) %~ BL.listClear
+
+stateShowFiles :: UIState -> [Lib.PassFile] -> UIState
+stateShowFiles st fs =
+  let items = Vec.fromList fs in
+  st & (C.stUi . bListFile) .~ BL.list ListFile items 1
+
+stateLogError :: C.AppState ui0 -> Text -> C.AppState ui0
+stateLogError st e = 
+  st & C.stMessage .~ Just (C.Message e C.LevelError C.defaultMessageTtl)
+
+stateGetSelectedDir :: UIState -> Maybe Lib.PassDir
+stateGetSelectedDir st =
+  case BL.listSelectedElement (st ^. (C.stUi . bListDir)) of
+    Just (_, d) -> Just d
+    Nothing -> Nothing
+
+stateGetSelectedFile :: UIState -> Maybe Lib.PassFile
+stateGetSelectedFile st =
+  case BL.listSelectedElement (st ^. (C.stUi . bListFile)) of
+    Just (_, f) -> Just f
+    Nothing -> Nothing
+------------------------
 
 getPassRoot :: IO (Maybe FilePath)
 getPassRoot = 
