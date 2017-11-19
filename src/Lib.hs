@@ -1,17 +1,19 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Lib where
 
 import           Protolude
 import qualified Data.Text as Txt
-import qualified System.Directory as Dir
-import           System.FilePath ((</>))
 import           Data.Functor.Syntax ((<$$>))
 import qualified System.IO as IO
 import qualified System.Exit as Xit
 import qualified System.Process as Proc
+import           System.FilePath ((</>))
 import qualified System.FilePath as FP
+import qualified System.Directory as Dir
+import qualified System.Environment as Env
 
 
 data PassFile = PassFile { pfName :: Text
@@ -135,3 +137,24 @@ shell appPath args = do
     Xit.ExitFailure i -> pure $ Left i  
 
   
+getPassRoot :: IO (Maybe FilePath)
+getPassRoot = 
+  Env.lookupEnv "PASSWORD_STORE_DIR" >>= \case
+    Just p ->
+      pure $ Just p
+
+    Nothing -> do
+      root <- Dir.getHomeDirectory
+
+      let ps = [ root </> ".password-store"
+               , root </> "password-store"
+               ]
+
+      pse <- sequenceA $ (\d -> do
+                                  e <- Dir.doesDirectoryExist d
+                                  pure (d, e)
+                         ) <$> ps
+
+      case filter snd pse of
+        ((d, True) : _) -> pure $ Just d
+        _ -> pure Nothing

@@ -390,24 +390,3 @@ stateGetSelectedFile st =
     Nothing -> Nothing
 ------------------------
 
-getPassRoot :: IO (Maybe FilePath)
-getPassRoot = 
-  Env.lookupEnv "PASSWORD_STORE_DIR" >>= \case
-    Just p ->
-      pure $ Just p
-
-    Nothing -> do
-      root <- Dir.getHomeDirectory
-
-      let ps = [ root </> ".password-store"
-               , root </> "password-store"
-               ]
-
-      pse <- sequenceA $ (\d -> do
-                                  e <- Dir.doesDirectoryExist d
-                                  pure (d, e)
-                         ) <$> ps
-
-      case filter snd pse of
-        ((d, True) : _) -> pure $ Just d
-        _ -> pure Nothing
