@@ -22,9 +22,6 @@ import qualified Brick.AttrMap as BA
 import qualified Brick.Widgets.List as BL
 import qualified Brick.Widgets.Border as BB
 import qualified Brick.Widgets.Border.Style as BBS
-import           System.FilePath ((</>))
-import qualified System.Directory as Dir
-import qualified System.Environment as Env
 import           Control.Monad.Free (Free(..))
 import           Control.Concurrent (threadDelay, forkIO)
 --import           Control.Monad.Free.Church as Fr
@@ -38,7 +35,7 @@ data Name = ListDir
           | ListFile
           deriving (Show, Ord, Eq)
           
-data Event = EventTick UTCTime
+newtype Event = EventTick UTCTime
 
 data BrickState = BrickState { _bListDir :: BL.List Name Lib.PassDir
                              , _bListFile :: BL.List Name Lib.PassFile
@@ -50,7 +47,7 @@ type UIState = C.AppState BrickState
 
 main :: IO ()
 main = 
-  getPassRoot >>= \case
+  Lib.getPassRoot >>= \case
     Just root -> do
       ps <- Lib.loadPass 0 "/" root
       let items = Vec.fromList $ Lib.flattenDirs ps
@@ -63,7 +60,7 @@ main =
         BCh.writeBChan chan $ EventTick t
         threadDelay 2000000
 
-      let st = C.AppState { C._stPassRoot = ps
+      let st = C.AppState { C._stRoot = root
                           , C._stDetail = []
                           , C._stFocus = C.FoldersControl
                           , C._stLastGenPassState = Nothing
@@ -116,10 +113,7 @@ handleEvent st ev =
   
 
 drawUI :: UIState -> [B.Widget Name]
-drawUI st' =
-  let a = C.preDrawUI st' in
-  let st = runStateDsl a in
-  
+drawUI st =
   [ B.padTop (B.Pad 1) (drawListDir st <+> drawListFile st <+> drawDetail st <+> drawHelp st)
     <=>
     drawFooter st
@@ -328,17 +322,22 @@ runUiDsl h a =
             let path = CN.rFolder r <> "/" <> CN.rName r
             void $ Lib.runProc "pass" ["insert", "-f", "-m", path] $ Just (CN.rPassword r)
 
+            -- Load the updated dirs
+            -- d <- Lib.loadPass 0 "/" $ st ^. C.stRoot
+            -- let st' = st & C.stUpdatedDirs .~ Just d
+            let st' = st
+
             if CN.rEditAfter r
               then do
                 void $ Lib.shell "pass" ["edit", path]
-                pure . create $ r
+                pure . create st' $ r
               else 
-                pure . create $ r
+                pure . create st' $ r
 
           Just err ->
-            pure . create $ r { CN.rErrorMessage = Just err
-                              , CN.rSuccess = False
-                              }
+            pure . create st $ r { CN.rErrorMessage = Just err
+                                 , CN.rSuccess = False
+                                 }
 
 
   where
@@ -351,7 +350,6 @@ runUiDsl h a =
                Left (_, o, err) -> Left $ o <> "\n\n" <> err
 
 ------------------------
-
 runStateDsl :: C.StateAction BrickState UIState
             -> UIState
 runStateDsl a =
@@ -363,6 +361,11 @@ runStateDsl a =
     (Free (C.StGetSelectedDir st n)) -> runStateDsl (n $ stateGetSelectedDir st)
     (Free (C.StGetSelectedFile st n)) -> runStateDsl (n $ stateGetSelectedFile st)
 
+
+stateSetDirs :: UIState -> Lib.PassDir -> UIState
+stateSetDirs st dir =
+  let items = Vec.fromList $ Lib.flattenDirs dir in
+  st & (C.stUi . bListDir) .~ BL.list ListDir items 1
 
 stateClearFiles :: UIState -> UIState
 stateClearFiles st =

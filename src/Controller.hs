@@ -44,7 +44,31 @@ data Name = FoldersControl
           | FilesControl
           deriving (Show, Eq)
 
-data AppState ui = AppState { _stPassRoot :: Lib.PassDir
+
+data UiActionF app next = Halt app
+                        | GetSelectedDir app (Maybe Lib.PassDir -> next)
+                        | GetSelectedFile app (Maybe Lib.PassFile -> next)
+                        | GetPassDetail Lib.PassFile (Either Text Text -> next)
+                        | LogError app Text (app -> next)
+                        | ClearFiles app (app -> next)
+                        | ShowFiles app [Lib.PassFile] (app -> next)
+                        | RunBaseHandler app (app -> next)
+                        | ClipLine Int Lib.PassFile (Either Int () -> next)
+
+                        -- | Note that ExitAnd*** actions terminate the DSL
+                        | ExitAndEditFile Lib.PassFile (Either Text Text -> app)
+                        | ExitAndGenPassword app
+                                             Text
+                                             (CN.CreatePasswordResult -> Maybe Text)
+                                             (app -> CN.CreatePasswordResult -> app)
+                     deriving (Functor)
+
+
+makeFree ''UiActionF
+type UiAction ui = Free (UiActionF (AppState ui))
+
+
+data AppState ui = AppState { _stRoot :: FilePath
                             , _stDetail :: [DetailLine]
                             , _stFocus :: Name
                             , _stUi :: ui
@@ -53,28 +77,8 @@ data AppState ui = AppState { _stPassRoot :: Lib.PassDir
                             , _stShowHelp :: Bool
                             }
 
+
 makeLenses ''AppState
-
-data UiActionF ui next = Halt (AppState ui)
-                       | GetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
-                       | GetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
-                       | GetPassDetail Lib.PassFile (Either Text Text -> next)
-                       | LogError (AppState ui) Text (AppState ui -> next)
-                       | ClearFiles (AppState ui) (AppState ui -> next)
-                       | ShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
-                       | RunBaseHandler (AppState ui) (AppState ui -> next)
-                       | ClipLine Int Lib.PassFile (Either Int () -> next)
-
-                       -- | Note that ExitAnd*** actions terminate the DSL
-                       | ExitAndEditFile Lib.PassFile (Either Text Text -> AppState ui)
-                       | ExitAndGenPassword (AppState ui)
-                                            Text
-                                            (CN.CreatePasswordResult -> Maybe Text)
-                                            (CN.CreatePasswordResult -> AppState ui)
-                     deriving (Functor)
-
-makeFree ''UiActionF
-type UiAction ui = Free (UiActionF ui)
 
 
 data StateActionF ui next = StGetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
@@ -97,7 +101,7 @@ handleKeyPress st (key, ms) =
     K.KChar 'n'  -> 
       getSelectedDir st >>= \case
         Nothing -> pure st
-        Just d -> exitAndGenPassword st (Lib.pdPassPath d) validatePassword (createPassword st)
+        Just d -> exitAndGenPassword st (Lib.pdPassPath d) validatePassword createPassword
 
     _ ->
       case st ^. stFocus of
@@ -221,7 +225,3 @@ createPassword st pr =
   st & stLastGenPassState .~ (Just . CN.rState $ pr)
      & stMessage .~ Just msg
 
-
-preDrawUI :: AppState ui -> StateAction ui (AppState ui)
-preDrawUI st =
-  pure st
