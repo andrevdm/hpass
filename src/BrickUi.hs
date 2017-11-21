@@ -6,6 +6,7 @@
 
 module BrickUi where
 
+import           Prelude (error) --TODO remove
 import           Protolude
 import           Control.Lens ((^.), (.~), (%~))
 import           Control.Lens.TH (makeLenses)
@@ -276,10 +277,9 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.bl
                               ]
 
 ------------------------
-
 runUiDsl :: (UIState -> B.EventM Name UIState)
-           -> C.UiAction BrickState UIState
-           -> B.EventM Name (B.Next UIState)
+         -> C.UiAction BrickState UIState
+         -> B.EventM Name (B.Next UIState)
 runUiDsl h a =
   case a of
     (Pure st) -> B.continue st
@@ -291,55 +291,34 @@ runUiDsl h a =
     (Free (C.GetSelectedFile st n)) -> runUiDsl h (n $ stateGetSelectedFile st)
 
     (Free (C.RunBaseHandler st n)) -> do
-      st' <- h st
+      st' <- h st 
       runUiDsl h (n st')
 
-    (Free (C.ClipLine line file n)) -> do
+    (Free (C.ClipLine _ line file n)) -> do
       r <- liftIO $ Lib.runProc "pass" ["show", "--clip=" <> show line, Lib.pfPassPath file] Nothing
-      let txt = case r of
+      let res = case r of
                   Right _ -> Right ()
                   Left (e, _, _) -> Left e
-      runUiDsl h $ n txt
 
-    (Free (C.GetPassDetail file n)) -> do
+      runUiDsl h $ n res
+
+    (Free (C.GetPassDetail _ file n)) -> do
       txt <- liftIO $ runPassShow file
       runUiDsl h $ n txt
+      
 
-    (Free (C.ExitAndEditFile file fn)) ->
-      B.suspendAndResume . liftIO $ do
+    (Free (C.RunEditFile _ file n)) -> do
+      showRes <- liftIO $ do
         void $ Lib.shell "pass" ["edit", Lib.pfPassPath file]
+        runPassShow file
 
-        runPassShow file >>= \case
-          Left e -> pure . fn . Left $ "Error getting data: " <> show e
-          Right p -> pure . fn . Right $ p
+      B.continue . runStateDsl $ n showRes
 
-    (Free (C.ExitAndGenPassword st dir validate create)) ->
-      B.suspendAndResume . liftIO $ do
+    (Free (C.RunGenPassword st dir n)) -> 
+      B.suspendAndResume $ do
         r <- CN.runCreatePassword (st ^. C.stLastGenPassState) dir
-
-        case validate r of
-          Nothing -> do
-            let path = CN.rFolder r <> "/" <> CN.rName r
-            void $ Lib.runProc "pass" ["insert", "-f", "-m", path] $ Just (CN.rPassword r)
-
-            -- Load the updated dirs
-            -- d <- Lib.loadPass 0 "/" $ st ^. C.stRoot
-            -- let st' = st & C.stUpdatedDirs .~ Just d
-            let st' = st
-
-            if CN.rEditAfter r
-              then do
-                void $ Lib.shell "pass" ["edit", path]
-                pure . create st' $ r
-              else 
-                pure . create st' $ r
-
-          Just err ->
-            pure . create st $ r { CN.rErrorMessage = Just err
-                                 , CN.rSuccess = False
-                                 }
-
-
+        pure . runStateDsl $ n r
+      
   where
     runPassShow :: Lib.PassFile -> IO (Either Text Text)
     runPassShow file = do
@@ -348,6 +327,8 @@ runUiDsl h a =
       pure $ case r of
                Right (t, _) -> Right t
                Left (_, o, err) -> Left $ o <> "\n\n" <> err
+------------------------
+
 
 ------------------------
 runStateDsl :: C.StateAction BrickState UIState
@@ -360,8 +341,10 @@ runStateDsl a =
     (Free (C.StShowFiles st fs n)) -> runStateDsl (n $ stateShowFiles st fs)
     (Free (C.StGetSelectedDir st n)) -> runStateDsl (n $ stateGetSelectedDir st)
     (Free (C.StGetSelectedFile st n)) -> runStateDsl (n $ stateGetSelectedFile st)
+------------------------
 
 
+------------------------
 stateSetDirs :: UIState -> Lib.PassDir -> UIState
 stateSetDirs st dir =
   let items = Vec.fromList $ Lib.flattenDirs dir in

@@ -7,6 +7,7 @@
 
 module Controller where
 
+import           Prelude (error)
 import           Protolude
 import           Control.Lens ((^.), (.~), (%~))
 import           Control.Lens.TH (makeLenses)
@@ -45,29 +46,6 @@ data Name = FoldersControl
           deriving (Show, Eq)
 
 
-data UiActionF app next = Halt app
-                        | GetSelectedDir app (Maybe Lib.PassDir -> next)
-                        | GetSelectedFile app (Maybe Lib.PassFile -> next)
-                        | GetPassDetail Lib.PassFile (Either Text Text -> next)
-                        | LogError app Text (app -> next)
-                        | ClearFiles app (app -> next)
-                        | ShowFiles app [Lib.PassFile] (app -> next)
-                        | RunBaseHandler app (app -> next)
-                        | ClipLine Int Lib.PassFile (Either Int () -> next)
-
-                        -- | Note that ExitAnd*** actions terminate the DSL
-                        | ExitAndEditFile Lib.PassFile (Either Text Text -> app)
-                        | ExitAndGenPassword app
-                                             Text
-                                             (CN.CreatePasswordResult -> Maybe Text)
-                                             (app -> CN.CreatePasswordResult -> app)
-                     deriving (Functor)
-
-
-makeFree ''UiActionF
-type UiAction ui = Free (UiActionF (AppState ui))
-
-
 data AppState ui = AppState { _stRoot :: FilePath
                             , _stDetail :: [DetailLine]
                             , _stFocus :: Name
@@ -77,8 +55,8 @@ data AppState ui = AppState { _stRoot :: FilePath
                             , _stShowHelp :: Bool
                             }
 
-
 makeLenses ''AppState
+
 
 
 data StateActionF ui next = StGetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
@@ -92,6 +70,26 @@ makeFree ''StateActionF
 type StateAction ui = Free (StateActionF ui)
 
 
+
+  
+data UiActionF ui next = Halt (AppState ui)
+                       | GetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
+                       | GetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
+                       | GetPassDetail (AppState ui) Lib.PassFile (Either Text Text -> next)
+                       | LogError (AppState ui) Text (AppState ui -> next)
+                       | ClearFiles (AppState ui) (AppState ui -> next)
+                       | ShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
+                       | RunBaseHandler (AppState ui) (AppState ui -> next)
+                       | ClipLine (AppState ui) Int Lib.PassFile (Either Int () -> next)
+                       | RunEditFile (AppState ui) Lib.PassFile (Either Text Text -> StateAction ui (AppState ui))
+                       | RunGenPassword (AppState ui) Text (CN.CreatePasswordResult -> StateAction ui (AppState ui))
+                     deriving (Functor)
+
+makeFree ''UiActionF
+type UiAction ui = Free (UiActionF ui)
+
+
+
 handleKeyPress :: AppState ui -> (K.Key, [K.Modifier]) -> UiAction ui (AppState ui)
 handleKeyPress st (key, ms) =
   case key of
@@ -101,7 +99,7 @@ handleKeyPress st (key, ms) =
     K.KChar 'n'  -> 
       getSelectedDir st >>= \case
         Nothing -> pure st
-        Just d -> exitAndGenPassword st (Lib.pdPassPath d) validatePassword createPassword
+        Just d -> handleCreatePassword st d
 
     _ ->
       case st ^. stFocus of
@@ -133,24 +131,23 @@ handleFilesKey st (key, []) =
     K.KChar '\t' -> focusFolder
     K.KLeft      -> focusFolder
 
-    K.KChar 'l'  -> showPass
+    K.KChar 'l'  -> showPass 
     K.KRight     -> showPass
 
     K.KChar 'e' ->
       getSelectedFile st >>= \case
         Nothing -> pure st
         Just f -> 
-          exitAndEditFile f (\case
-                                Right d -> st & stDetail .~ parseDetail d
-                                Left e -> st & stDetail .~ []
-                                             & stMessage .~ Just (Message e LevelError defaultMessageTtl)
-                            )
+          runEditFile st f (\case
+                               Right d -> pure $ st & stDetail .~ parseDetail d
+                               Left e -> pure $ st & stDetail .~ []
+                                                   & stMessage .~ Just (Message e LevelError defaultMessageTtl))
 
     K.KChar c | (c `elem` ("0123456789" :: [Char])) ->
       getSelectedFile st >>= \case
         Nothing -> pure st
         Just f -> case readMaybe [c] :: Maybe Int of
-                    Just i -> clipLine (i + 1) f >>= \case
+                    Just i -> clipLine st (i + 1) f >>= \case
                       Right _ -> pure $ st & stMessage .~ Just (Message ("copied: " <> show i) LevelInfo defaultMessageTtl)
                       Left e -> pure $ st & stMessage .~ Just (Message ("error: " <> show e) LevelInfo defaultMessageTtl)
                     Nothing -> pure st
@@ -165,7 +162,7 @@ handleFilesKey st (key, []) =
       getSelectedFile st >>= \case
         Nothing -> pure st
         Just f ->
-          getPassDetail f >>= \case
+          getPassDetail st f >>= \case
             Left e ->
               logError st e
 
@@ -208,12 +205,6 @@ parseDetail d =
         else Txt.replace pwd "*****" s
 
 
-validatePassword :: CN.CreatePasswordResult -> Maybe Text
-validatePassword pr 
-  | not (CN.rSuccess pr) = Just "Password creation cancelled"
-  | Txt.length (CN.rPassword pr) < 3 = Just "Password creation aborted. Password must be longer than 3 chars"
-  | Txt.null (CN.rName pr) = Just "Password creation aborted. Name is required"
-  | otherwise = Nothing
 
 
 createPassword :: AppState ui -> CN.CreatePasswordResult -> AppState ui
@@ -225,3 +216,21 @@ createPassword st pr =
   st & stLastGenPassState .~ (Just . CN.rState $ pr)
      & stMessage .~ Just msg
 
+
+
+handleCreatePassword :: MonadFree (UiActionF ui) m => AppState ui -> Lib.PassDir -> m (AppState ui)
+handleCreatePassword st dir = 
+  runGenPassword st (Lib.pdPassPath dir) (\pr ->
+                                             case validatePassword pr of
+                                               Nothing ->
+                                                 pure st
+                                               Just e ->
+                                                 stLogError st e)
+
+  where
+    validatePassword :: CN.CreatePasswordResult -> Maybe Text
+    validatePassword pr 
+      | not (CN.rSuccess pr) = Just "Password creation cancelled"
+      | Txt.length (CN.rPassword pr) < 3 = Just "Password creation aborted. Password must be longer than 3 chars"
+      | Txt.null (CN.rName pr) = Just "Password creation aborted. Name is required"
+      | otherwise = Nothing
