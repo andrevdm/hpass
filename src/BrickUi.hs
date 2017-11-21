@@ -319,6 +319,19 @@ runUiDsl h a =
     (Free (C.RunGenPassword st dir n)) -> 
       B.suspendAndResume $ do
         r <- CN.runCreatePassword (st ^. C.stLastGenPassState) dir
+
+        if CN.rSuccess r
+          then do
+            let path = CN.rFolder r <> "/" <> CN.rName r
+            void $ Lib.runProc "pass" ["insert", "-f", "-m", path] $ Just (CN.rPassword r)
+
+            if CN.rEditAfter r
+              then void $ Lib.shell "pass" ["edit", path]
+              else pass
+
+          else
+            pass
+  
         pure . runStateDsl $ n r
       
   where
