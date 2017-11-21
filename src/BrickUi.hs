@@ -293,6 +293,7 @@ runUiDsl h a =
     (Free (C.RunBaseHandler st n)) -> do
       st' <- h st 
       runUiDsl h (n st')
+ 
 
     (Free (C.ClipLine _ line file n)) -> do
       r <- liftIO $ Lib.runProc "pass" ["show", "--clip=" <> show line, Lib.pfPassPath file] Nothing
@@ -302,17 +303,18 @@ runUiDsl h a =
 
       runUiDsl h $ n res
 
+
     (Free (C.GetPassDetail _ file n)) -> do
       txt <- liftIO $ runPassShow file
       runUiDsl h $ n txt
       
 
-    (Free (C.RunEditFile _ file n)) -> do
-      showRes <- liftIO $ do
+    (Free (C.RunEditFile _ file n)) -> 
+      B.suspendAndResume $ do
         void $ Lib.shell "pass" ["edit", Lib.pfPassPath file]
-        runPassShow file
+        showRes <- runPassShow file
+        pure . runStateDsl $ n showRes
 
-      B.continue . runStateDsl $ n showRes
 
     (Free (C.RunGenPassword st dir n)) -> 
       B.suspendAndResume $ do
