@@ -6,7 +6,6 @@
 
 module BrickUi where
 
-import           Prelude (error) --TODO remove
 import           Protolude
 import           Control.Lens ((^.), (.~), (%~))
 import           Control.Lens.TH (makeLenses)
@@ -295,18 +294,20 @@ runUiDsl h a =
       runUiDsl h (n st')
  
 
-    (Free (C.ClipLine _ line file n)) -> do
-      r <- liftIO $ Lib.runProc "pass" ["show", "--clip=" <> show line, Lib.pfPassPath file] Nothing
-      let res = case r of
-                  Right _ -> Right ()
-                  Left (e, _, _) -> Left e
+    (Free (C.ClipLine _ line file n)) ->
+      B.suspendAndResume $ do
+        r <- liftIO $ Lib.runProc "pass" ["show", "--clip=" <> show line, Lib.pfPassPath file] Nothing
+        let res = case r of
+                    Right _ -> Right ()
+                    Left (e, _, _) -> Left e
 
-      runUiDsl h $ n res
+        pure . runStateDsl $ n res
 
 
-    (Free (C.GetPassDetail _ file n)) -> do
-      txt <- liftIO $ runPassShow file
-      runUiDsl h $ n txt
+    (Free (C.GetPassDetail _ file n)) ->
+      B.suspendAndResume $ do
+        r <- liftIO $ runPassShow file
+        pure . runStateDsl $ n r
       
 
     (Free (C.RunEditFile _ file n)) -> 

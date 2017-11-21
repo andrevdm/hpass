@@ -7,7 +7,6 @@
 
 module Controller where
 
-import           Prelude (error)
 import           Protolude
 import           Control.Lens ((^.), (.~), (%~))
 import           Control.Lens.TH (makeLenses)
@@ -75,12 +74,13 @@ type StateAction ui = Free (StateActionF ui)
 data UiActionF ui next = Halt (AppState ui)
                        | GetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
                        | GetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
-                       | GetPassDetail (AppState ui) Lib.PassFile (Either Text Text -> next)
                        | LogError (AppState ui) Text (AppState ui -> next)
                        | ClearFiles (AppState ui) (AppState ui -> next)
                        | ShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
                        | RunBaseHandler (AppState ui) (AppState ui -> next)
-                       | ClipLine (AppState ui) Int Lib.PassFile (Either Int () -> next)
+
+                       | GetPassDetail (AppState ui) Lib.PassFile (Either Text Text -> StateAction ui (AppState ui))
+                       | ClipLine (AppState ui) Int Lib.PassFile (Either Int () -> StateAction ui (AppState ui))
                        | RunEditFile (AppState ui) Lib.PassFile (Either Text Text -> StateAction ui (AppState ui))
                        | RunGenPassword (AppState ui) Text (CN.CreatePasswordResult -> StateAction ui (AppState ui))
                      deriving (Functor)
@@ -147,9 +147,10 @@ handleFilesKey st (key, []) =
       getSelectedFile st >>= \case
         Nothing -> pure st
         Just f -> case readMaybe [c] :: Maybe Int of
-                    Just i -> clipLine st (i + 1) f >>= \case
+                    Just i -> clipLine st (i + 1) f $ \case
                       Right _ -> pure $ st & stMessage .~ Just (Message ("copied: " <> show i) LevelInfo defaultMessageTtl)
                       Left e -> pure $ st & stMessage .~ Just (Message ("error: " <> show e) LevelInfo defaultMessageTtl)
+
                     Nothing -> pure st
           
     _ -> runBaseHandler $ st & stDetail .~ []
@@ -162,13 +163,14 @@ handleFilesKey st (key, []) =
       getSelectedFile st >>= \case
         Nothing -> pure st
         Just f ->
-          getPassDetail st f >>= \case
-            Left e ->
-              logError st e
+          getPassDetail st f $ \pd -> do 
+            case pd of
+              Left e ->
+                stLogError st e
 
-            Right d -> 
-              pure $ st & stDetail .~ parseDetail d
-                        & stShowHelp .~ False
+              Right d -> 
+                pure $ st & stDetail .~ parseDetail d
+                          & stShowHelp .~ False
 
 handleFilesKey st _ = pure st
 
