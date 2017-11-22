@@ -163,14 +163,13 @@ handleFilesKey st (key, []) =
       getSelectedFile st >>= \case
         Nothing -> pure st
         Just f ->
-          getPassDetail st f $ \pd -> do 
-            case pd of
-              Left e ->
-                stLogError st e
+          getPassDetail st f $ \case
+            Left e ->
+              stLogError st e
 
-              Right d -> 
-                pure $ st & stDetail .~ parseDetail d
-                          & stShowHelp .~ False
+            Right d -> 
+              pure $ st & stDetail .~ parseDetail d
+                        & stShowHelp .~ False
 
 handleFilesKey st _ = pure st
 
@@ -207,27 +206,15 @@ parseDetail d =
         else Txt.replace pwd "*****" s
 
 
-
-
-createPassword :: AppState ui -> CN.CreatePasswordResult -> AppState ui
-createPassword st pr =
-  let msg = if CN.rSuccess pr
-               then Message ("Password created: " <> (CN.rFolder pr <> "/" <> CN.rName pr)) LevelInfo defaultMessageTtl
-               else Message (fromMaybe "Password creation aborted" $ CN.rErrorMessage pr) LevelError defaultMessageTtl in
-  
-  st & stLastGenPassState .~ (Just . CN.rState $ pr)
-     & stMessage .~ Just msg
-
-
-
 handleCreatePassword :: MonadFree (UiActionF ui) m => AppState ui -> Lib.PassDir -> m (AppState ui)
 handleCreatePassword st dir = 
-  runGenPassword st (Lib.pdPassPath dir) (\pr ->
-                                             case validatePassword pr of
-                                               Nothing ->
-                                                 pure st
-                                               Just e ->
-                                                 stLogError st e)
+  runGenPassword st (Lib.pdPassPath dir) $ \pr ->
+    let msg = case validatePassword pr of
+                Nothing -> Message ("Password created: " <> (CN.rFolder pr <> "/" <> CN.rName pr)) LevelInfo defaultMessageTtl
+                Just e -> Message e LevelError defaultMessageTtl in
+    
+    pure $ st & stLastGenPassState .~ (Just . CN.rState $ pr)
+              & stMessage .~ Just msg
 
   where
     validatePassword :: CN.CreatePasswordResult -> Maybe Text

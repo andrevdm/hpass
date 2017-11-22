@@ -337,7 +337,7 @@ runUiDsl h a =
                Right (t, _) -> Right t
                Left (_, o, err) -> Left $ o <> "\n\n" <> err
 
-    runGenPassword :: C.AppState ui0 -> Text -> IO CN.CreatePasswordResult
+    runGenPassword :: C.AppState ui -> Text -> IO CN.CreatePasswordResult
     runGenPassword st dir = do
       r <- CN.runCreatePassword (st ^. C.stLastGenPassState) dir
     
