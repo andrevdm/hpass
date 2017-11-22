@@ -378,6 +378,7 @@ runStateIODsl :: C.IOStateAction BrickState UIState
 runStateIODsl a =
   case a of
     (Pure st) -> pure st
+    (Free (C.StGetDirs st n)) -> runStateIODsl $ n . Vec.toList $ st ^. (C.stUi . bListDir . BL.listElementsL)
     (Free (C.StLogError st e n)) -> runStateIODsl (n $ stateLogError st e)
     (Free (C.StClearFiles st n)) -> runStateIODsl (n $ stateClearFiles st)
     (Free (C.StShowFiles st fs n)) -> runStateIODsl (n $ stateShowFiles st fs)
@@ -390,9 +391,13 @@ runStateIODsl a =
 
       runStateIODsl $ n $ st & (C.stUi . bListDir) .~ BL.list ListDir items 1
                              & (C.stUi . bListFile) .~ BL.list ListFile Vec.empty 1
-------------------------
 
+    (Free (C.StSelectDir st dir n)) -> do
+      let dirs = st ^. (C.stUi . bListDir . BL.listElementsL)
 
+      case Vec.findIndex (\s -> Lib.pdPath dir == Lib.pdPath s) dirs of
+        Nothing -> runStateIODsl $ n st
+        Just i -> runStateIODsl (n $ st & (C.stUi . bListDir) %~ BL.listMoveTo i)
 ------------------------
 
   

@@ -64,6 +64,8 @@ data IOStateActionF ui next = StGetSelectedDir (AppState ui) (Maybe Lib.PassDir 
                             | StClearFiles (AppState ui) (AppState ui -> next)
                             | StShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
                             | StReloadDirs (AppState ui) (AppState ui -> next)
+                            | StGetDirs (AppState ui) ([Lib.PassDir] -> next)
+                            | StSelectDir (AppState ui) Lib.PassDir (AppState ui -> next)
                             deriving (Functor)
 
 makeFree ''IOStateActionF
@@ -222,13 +224,33 @@ handleCreatePassword st dir =
                 Just e -> Message e LevelError defaultMessageTtl
 
     st' <- if isNothing validated
-             then stReloadDirs st
+             then reloadDirs st
              else pure st
       
     pure $ st' & stLastGenPassState .~ (Just . CN.rState $ pr)
                & stMessage .~ Just msg
 
   where
+    reloadDirs :: MonadFree (IOStateActionF ui) m => AppState ui -> m (AppState ui)
+    reloadDirs st1 =
+      stGetSelectedDir st1 >>= \case
+        Just d -> do
+          st2 <- stReloadDirs st1
+          dirs <- stGetDirs st2
+
+          case filter (\search -> Lib.pdPath d == Lib.pdPath search) dirs of
+            (found : _) -> do
+              -- Select the directory
+              st3 <- stSelectDir st2 found
+              -- Show the selected dir's files
+              stShowFiles st3 $ Lib.pdFiles found
+
+            _ ->
+              pure st2
+
+        Nothing ->
+          pure st1
+
     validatePassword :: CN.CreatePasswordResult -> Maybe Text
     validatePassword pr 
       | not (CN.rSuccess pr) = Just "Password creation cancelled"
