@@ -58,39 +58,40 @@ makeLenses ''AppState
 
 
 
-data StateActionF ui next = StGetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
-                          | StGetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
-                          | StLogError (AppState ui) Text (AppState ui -> next)
-                          | StClearFiles (AppState ui) (AppState ui -> next)
-                          | StShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
-                          deriving (Functor)
+data IOStateActionF ui next = StGetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
+                            | StGetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
+                            | StLogError (AppState ui) Text (AppState ui -> next)
+                            | StClearFiles (AppState ui) (AppState ui -> next)
+                            | StShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
+                            | StReloadDirs (AppState ui) (AppState ui -> next)
+                            deriving (Functor)
 
-makeFree ''StateActionF
-type StateAction ui = Free (StateActionF ui)
+makeFree ''IOStateActionF
+type IOStateAction ui = Free (IOStateActionF ui)
 
 
 
   
-data UiActionF ui next = Halt (AppState ui)
-                       | GetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
-                       | GetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
-                       | LogError (AppState ui) Text (AppState ui -> next)
-                       | ClearFiles (AppState ui) (AppState ui -> next)
-                       | ShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
-                       | RunBaseHandler (AppState ui) (AppState ui -> next)
+data EventActionF ui next = Halt (AppState ui)
+                          | GetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
+                          | GetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
+                          | LogError (AppState ui) Text (AppState ui -> next)
+                          | ClearFiles (AppState ui) (AppState ui -> next)
+                          | ShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
+                          | RunBaseHandler (AppState ui) (AppState ui -> next)
 
-                       | GetPassDetail (AppState ui) Lib.PassFile (Either Text Text -> StateAction ui (AppState ui))
-                       | ClipLine (AppState ui) Int Lib.PassFile (Either Int () -> StateAction ui (AppState ui))
-                       | RunEditFile (AppState ui) Lib.PassFile (Either Text Text -> StateAction ui (AppState ui))
-                       | RunGenPassword (AppState ui) Text (CN.CreatePasswordResult -> StateAction ui (AppState ui))
-                     deriving (Functor)
+                          | GetPassDetail (AppState ui) Lib.PassFile (Either Text Text -> IOStateAction ui (AppState ui))
+                          | ClipLine (AppState ui) Int Lib.PassFile (Either Int () -> IOStateAction ui (AppState ui))
+                          | RunEditFile (AppState ui) Lib.PassFile (Either Text Text -> IOStateAction ui (AppState ui))
+                          | RunGenPassword (AppState ui) Text (CN.CreatePasswordResult -> IOStateAction ui (AppState ui))
+                          deriving (Functor)
 
-makeFree ''UiActionF
-type UiAction ui = Free (UiActionF ui)
+makeFree ''EventActionF
+type EventAction ui = Free (EventActionF ui)
 
 
 
-handleKeyPress :: AppState ui -> (K.Key, [K.Modifier]) -> UiAction ui (AppState ui)
+handleKeyPress :: AppState ui -> (K.Key, [K.Modifier]) -> EventAction ui (AppState ui)
 handleKeyPress st (key, ms) =
   case key of
     K.KEsc      -> halt st
@@ -107,7 +108,7 @@ handleKeyPress st (key, ms) =
         FilesControl -> handleFilesKey st (key, ms)
 
 
-handleFoldersKey :: AppState ui -> (K.Key, [K.Modifier]) -> UiAction ui (AppState ui)
+handleFoldersKey :: AppState ui -> (K.Key, [K.Modifier]) -> EventAction ui (AppState ui)
 handleFoldersKey st (key, _) = do
   st' <- case key of
            K.KChar 'l'  -> focusFile
@@ -124,7 +125,7 @@ handleFoldersKey st (key, _) = do
                           & stDetail .~ []
 
 
-handleFilesKey :: AppState ui -> (K.Key, [K.Modifier]) -> UiAction ui (AppState ui)
+handleFilesKey :: AppState ui -> (K.Key, [K.Modifier]) -> EventAction ui (AppState ui)
 handleFilesKey st (key, []) =
   case key of
     K.KChar 'h'  -> focusFolder
@@ -174,7 +175,7 @@ handleFilesKey st (key, []) =
 handleFilesKey st _ = pure st
 
 
-handleTick :: AppState ui -> Tm.UTCTime -> UiAction ui (AppState ui)
+handleTick :: AppState ui -> Tm.UTCTime -> EventAction ui (AppState ui)
 handleTick st _ =
   case st ^. stMessage of
     Nothing ->
@@ -206,7 +207,7 @@ parseDetail d =
         else Txt.replace pwd "*****" s
 
 
-handleCreatePassword :: MonadFree (UiActionF ui) m => AppState ui -> Lib.PassDir -> m (AppState ui)
+handleCreatePassword :: MonadFree (EventActionF ui) m => AppState ui -> Lib.PassDir -> m (AppState ui)
 handleCreatePassword st dir = 
   runGenPassword st (Lib.pdPassPath dir) $ \pr ->
     let msg = case validatePassword pr of

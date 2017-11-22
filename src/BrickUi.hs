@@ -91,11 +91,11 @@ handleEvent st ev =
   case ev of
     (B.VtyEvent ve@(V.EvKey k ms)) -> do
       let a = C.handleKeyPress st (k, ms)
-      runUiDsl (handleBaseEvent ve) a
+      runEventDsl (handleBaseEvent ve) a
 
     (B.AppEvent (EventTick time)) -> do
       let a = C.handleTick st time
-      runUiDsl pure a
+      runEventDsl pure a
       
     _ -> B.continue st
 
@@ -276,57 +276,63 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.bl
                               ]
 
 ------------------------
-runUiDsl :: (UIState -> B.EventM Name UIState)
-         -> C.UiAction BrickState UIState
-         -> B.EventM Name (B.Next UIState)
-runUiDsl h a =
+runEventDsl :: (UIState -> B.EventM Name UIState)
+            -> C.EventAction BrickState UIState
+            -> B.EventM Name (B.Next UIState)
+runEventDsl h a =
   case a of
     (Pure st) -> B.continue st
     (Free (C.Halt st)) -> B.halt st
-    (Free (C.LogError st e n)) -> runUiDsl h (n $ stateLogError st e)
-    (Free (C.ClearFiles st n)) -> runUiDsl h (n  $ stateClearFiles st)
-    (Free (C.ShowFiles st fs n)) -> runUiDsl h (n $ stateShowFiles st fs)
-    (Free (C.GetSelectedDir st n)) -> runUiDsl h (n $ stateGetSelectedDir st)
-    (Free (C.GetSelectedFile st n)) -> runUiDsl h (n $ stateGetSelectedFile st)
+    (Free (C.LogError st e n)) -> runEventDsl h (n $ stateLogError st e)
+    (Free (C.ClearFiles st n)) -> runEventDsl h (n  $ stateClearFiles st)
+    (Free (C.ShowFiles st fs n)) -> runEventDsl h (n $ stateShowFiles st fs)
+    (Free (C.GetSelectedDir st n)) -> runEventDsl h (n $ stateGetSelectedDir st)
+    (Free (C.GetSelectedFile st n)) -> runEventDsl h (n $ stateGetSelectedFile st)
 
     (Free (C.RunBaseHandler st n)) -> do
       st' <- h st 
-      runUiDsl h (n st')
+      runEventDsl h (n st')
  
 
     (Free (C.ClipLine _ line file n)) ->
       if True
         then do
-          res <- liftIO $ runClip line file
-          B.continue . runStateDsl $ n res
+          r <- liftIO $ do
+            res <- runClip line file
+            runStateIODsl $ n res
+
+          B.continue r
         else
           B.suspendAndResume $ do
             res <- runClip line file
-            pure . runStateDsl $ n res
+            runStateIODsl $ n res
 
 
     (Free (C.GetPassDetail _ file n)) ->
       if True
         then do
-          r <- liftIO $ runPassShow file
-          B.continue . runStateDsl $ n r
+          res <- liftIO $ do
+            r <- runPassShow file
+            runStateIODsl $ n r
+
+          B.continue res
         else
           B.suspendAndResume $ do
             r <- runPassShow file
-            pure . runStateDsl $ n r
-      
+            runStateIODsl $ n r
+
 
     (Free (C.RunEditFile _ file n)) -> 
       B.suspendAndResume $ do
         void $ Lib.shell "pass" ["edit", Lib.pfPassPath file]
         showRes <- runPassShow file
-        pure . runStateDsl $ n showRes
+        runStateIODsl $ n showRes
 
 
     (Free (C.RunGenPassword st dir n)) -> 
       B.suspendAndResume $ do
         r <- runGenPassword st dir
-        pure . runStateDsl $ n r
+        runStateIODsl $ n r
       
   where
     runPassShow :: Lib.PassFile -> IO (Either Text Text)
@@ -365,16 +371,18 @@ runUiDsl h a =
 
 
 ------------------------
-runStateDsl :: C.StateAction BrickState UIState
-            -> UIState
-runStateDsl a =
+runStateIODsl :: C.IOStateAction BrickState UIState
+              -> IO UIState
+runStateIODsl a =
   case a of
-    (Pure st) -> st
-    (Free (C.StLogError st e n)) -> runStateDsl (n $ stateLogError st e)
-    (Free (C.StClearFiles st n)) -> runStateDsl (n $ stateClearFiles st)
-    (Free (C.StShowFiles st fs n)) -> runStateDsl (n $ stateShowFiles st fs)
-    (Free (C.StGetSelectedDir st n)) -> runStateDsl (n $ stateGetSelectedDir st)
-    (Free (C.StGetSelectedFile st n)) -> runStateDsl (n $ stateGetSelectedFile st)
+    (Pure st) -> pure st
+    (Free (C.StLogError st e n)) -> runStateIODsl (n $ stateLogError st e)
+    (Free (C.StClearFiles st n)) -> runStateIODsl (n $ stateClearFiles st)
+    (Free (C.StShowFiles st fs n)) -> runStateIODsl (n $ stateShowFiles st fs)
+    (Free (C.StGetSelectedDir st n)) -> runStateIODsl (n $ stateGetSelectedDir st)
+    (Free (C.StGetSelectedFile st n)) -> runStateIODsl (n $ stateGetSelectedFile st)
+
+    (Free (C.StReloadDirs st n)) -> runStateIODsl $ n st --TODO
 ------------------------
 
 
