@@ -209,13 +209,18 @@ parseDetail d =
 
 handleCreatePassword :: MonadFree (EventActionF ui) m => AppState ui -> Lib.PassDir -> m (AppState ui)
 handleCreatePassword st dir = 
-  runGenPassword st (Lib.pdPassPath dir) $ \pr ->
-    let msg = case validatePassword pr of
+  runGenPassword st (Lib.pdPassPath dir) $ \pr -> do
+    let validated = validatePassword pr
+    let msg = case validated of
                 Nothing -> Message ("Password created: " <> (CN.rFolder pr <> "/" <> CN.rName pr)) LevelInfo defaultMessageTtl
-                Just e -> Message e LevelError defaultMessageTtl in
-    
-    pure $ st & stLastGenPassState .~ (Just . CN.rState $ pr)
-              & stMessage .~ Just msg
+                Just e -> Message e LevelError defaultMessageTtl
+
+    st' <- if isNothing validated
+             then stReloadDirs st
+             else pure st
+      
+    pure $ st' & stLastGenPassState .~ (Just . CN.rState $ pr)
+               & stMessage .~ Just msg
 
   where
     validatePassword :: CN.CreatePasswordResult -> Maybe Text

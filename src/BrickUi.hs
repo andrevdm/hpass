@@ -382,7 +382,12 @@ runStateIODsl a =
     (Free (C.StGetSelectedDir st n)) -> runStateIODsl (n $ stateGetSelectedDir st)
     (Free (C.StGetSelectedFile st n)) -> runStateIODsl (n $ stateGetSelectedFile st)
 
-    (Free (C.StReloadDirs st n)) -> runStateIODsl $ n st --TODO
+    (Free (C.StReloadDirs st n)) -> do
+      ps <- Lib.loadPass 0 "/" $ st ^. C.stRoot
+      let items = Vec.fromList $ Lib.flattenDirs ps
+
+      runStateIODsl $ n $ st & (C.stUi . bListDir) .~ BL.list ListDir items 1
+                             & (C.stUi . bListFile) .~ BL.list ListFile Vec.empty 1
 ------------------------
 
 
