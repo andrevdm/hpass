@@ -50,7 +50,8 @@ main =
   Lib.getPassRoot >>= \case
     Just root -> do
       ps <- Lib.loadPass 0 "/" root
-      let items = Vec.fromList $ Lib.flattenDirs ps
+      let items' = Lib.flattenDirs ps
+      let items = Vec.fromList items'
 
       chan <- BCh.newBChan 10
 
@@ -71,7 +72,8 @@ main =
                           , C._stShowHelp = True
                           }
               
-      void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st
+      st' <- runStateIODsl $ C.initState st items'
+      void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st'
 
     Nothing ->
       putText "Pass root path not found"

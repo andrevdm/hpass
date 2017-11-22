@@ -90,6 +90,13 @@ makeFree ''EventActionF
 type EventAction ui = Free (EventActionF ui)
 
 
+initState :: AppState ui -> [Lib.PassDir] -> IOStateAction ui (AppState ui)
+initState st items = 
+  -- Show the files for the first folder
+  case items of
+    (d:_) -> stShowFiles st $ Lib.pdFiles d
+    _ -> pure st
+
 
 handleKeyPress :: AppState ui -> (K.Key, [K.Modifier]) -> EventAction ui (AppState ui)
 handleKeyPress st (key, ms) =
@@ -123,7 +130,6 @@ handleFoldersKey st (key, _) = do
   where
     focusFile = pure $ st & stFocus .~ FilesControl
                           & stDetail .~ []
-
 
 handleFilesKey :: AppState ui -> (K.Key, [K.Modifier]) -> EventAction ui (AppState ui)
 handleFilesKey st (key, []) =
