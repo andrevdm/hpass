@@ -1,14 +1,14 @@
 name:                hpass
-version:             0.1.3.2
+version:             0.1.3.3
 -- synopsis:
 -- description:
-homepage:            https://github.com/githubuser/hpass#readme
+homepage:            https://github.com/andrevdm/hpass#readme
 license:             BSD3
 license-file:        LICENSE
-author:              Author name here
-maintainer:          example@example.com
+author:              Andre Van Der Merwe
+maintainer:          andre@andrevdm.com
 copyright:           2017 Author name here
-category:            Web
+category:            Application
 build-type:          Simple
 extra-source-files:  README.md
 cabal-version:       >=1.10
@@ -70,4 +70,4 @@ test-suite hpass-test
 
 source-repository head
   type:     git
-  location: https://github.com/githubuser/hpass
+  location: https://github.com/andrevdm/hpass

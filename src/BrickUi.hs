@@ -295,19 +295,25 @@ runUiDsl h a =
  
 
     (Free (C.ClipLine _ line file n)) ->
-      B.suspendAndResume $ do
-        r <- liftIO $ Lib.runProc "pass" ["show", "--clip=" <> show line, Lib.pfPassPath file] Nothing
-        let res = case r of
-                    Right _ -> Right ()
-                    Left (e, _, _) -> Left e
-
-        pure . runStateDsl $ n res
+      if True
+        then do
+          res <- liftIO $ runClip line file
+          B.continue . runStateDsl $ n res
+        else
+          B.suspendAndResume $ do
+            res <- runClip line file
+            pure . runStateDsl $ n res
 
 
     (Free (C.GetPassDetail _ file n)) ->
-      B.suspendAndResume $ do
-        r <- liftIO $ runPassShow file
-        pure . runStateDsl $ n r
+      if True
+        then do
+          r <- liftIO $ runPassShow file
+          B.continue . runStateDsl $ n r
+        else
+          B.suspendAndResume $ do
+            r <- runPassShow file
+            pure . runStateDsl $ n r
       
 
     (Free (C.RunEditFile _ file n)) -> 
@@ -319,20 +325,7 @@ runUiDsl h a =
 
     (Free (C.RunGenPassword st dir n)) -> 
       B.suspendAndResume $ do
-        r <- CN.runCreatePassword (st ^. C.stLastGenPassState) dir
-
-        if CN.rSuccess r
-          then do
-            let path = CN.rFolder r <> "/" <> CN.rName r
-            void $ Lib.runProc "pass" ["insert", "-f", "-m", path] $ Just (CN.rPassword r)
-
-            if CN.rEditAfter r
-              then void $ Lib.shell "pass" ["edit", path]
-              else pass
-
-          else
-            pass
-  
+        r <- runGenPassword st dir
         pure . runStateDsl $ n r
       
   where
@@ -343,6 +336,31 @@ runUiDsl h a =
       pure $ case r of
                Right (t, _) -> Right t
                Left (_, o, err) -> Left $ o <> "\n\n" <> err
+
+    runGenPassword :: C.AppState ui0 -> Text -> IO CN.CreatePasswordResult
+    runGenPassword st dir = do
+      r <- CN.runCreatePassword (st ^. C.stLastGenPassState) dir
+    
+      if CN.rSuccess r
+        then do
+          let path = CN.rFolder r <> "/" <> CN.rName r
+          void $ Lib.runProc "pass" ["insert", "-f", "-m", path] $ Just (CN.rPassword r)
+    
+          if CN.rEditAfter r
+            then void $ Lib.shell "pass" ["edit", path]
+            else pass
+    
+        else
+          pass
+    
+      pure r
+    
+    runClip :: Show a => a -> Lib.PassFile -> IO (Either Int ())
+    runClip line file = do
+      r <- Lib.runProc "pass" ["show", "--clip=" <> show line, Lib.pfPassPath file] Nothing
+      pure $ case r of
+               Right _ -> Right ()
+               Left (e, _, _) -> Left e
 ------------------------
 
 
@@ -361,6 +379,8 @@ runStateDsl a =
 
 
 ------------------------
+
+  
 stateSetDirs :: UIState -> Lib.PassDir -> UIState
 stateSetDirs st dir =
   let items = Vec.fromList $ Lib.flattenDirs dir in
