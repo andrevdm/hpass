@@ -154,8 +154,8 @@ handleEvent st ev =
         (_, []) ->
           case BF.focusGetCurrent $ st ^. stFocus of
             Just EditFolder -> handleEdit ek stEditFolder stEditFolder False
-            Just EditName -> handleEdit ek stEditName stEditName False
             Just EditPass -> handleEdit ek stEditPassword stEditPassword False
+            Just EditName | isValidNameKey k -> handleEdit ek stEditName stEditName False
             Just EditLen  | isValidNumericKey k -> handleEdit ek stEditLen stEditLen True
 
             Just ButOk -> handleButOk k
@@ -200,6 +200,11 @@ handleEvent st ev =
       r <- BE.handleEditorEvent ek (st ^. get')
       let update = if updatePwd then withNewPassword else identity
       B.continue . update $ st & set .~ r
+
+    isValidNameKey k = 
+      case k of
+        K.KChar c -> c `notElem` ['\\', '*', '/', '?', '>' ,'<', ':', '"']
+        _ -> True
 
     isValidNumericKey k = 
       case k of
