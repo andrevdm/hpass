@@ -32,8 +32,14 @@ data Message = Message { mText :: Text
                        , mTtl :: Int
                        }
 
+defaultTickPeriodMicroSeconds :: Int
+defaultTickPeriodMicroSeconds = 2000000
+
 defaultMessageTtl :: Int
 defaultMessageTtl = 2
+
+defaultAutoCloseTtl :: Int
+defaultAutoCloseTtl = 60
 
 data DetailLine = DetailLine { dlOriginal :: Text
                              , dlKey :: Text
@@ -52,6 +58,7 @@ data AppState ui = AppState { _stRoot :: FilePath
                             , _stLastGenPassState :: Maybe CN.PrevState
                             , _stMessage :: Maybe Message
                             , _stShowHelp :: Bool
+                            , _stAutoCloseTtl :: Int
                             }
 
 makeLenses ''AppState
@@ -101,7 +108,10 @@ initState st items =
 
 
 handleKeyPress :: AppState ui -> (K.Key, [K.Modifier]) -> EventAction ui (AppState ui)
-handleKeyPress st (key, ms) =
+handleKeyPress st' (key, ms) =
+  --Reset auto close TTL
+  let st = st' & stAutoCloseTtl .~ defaultAutoCloseTtl in
+  
   case key of
     K.KEsc      -> halt st
     K.KChar 'q' -> halt st
@@ -184,14 +194,25 @@ handleFilesKey st _ = pure st
 
 
 handleTick :: AppState ui -> Tm.UTCTime -> EventAction ui (AppState ui)
-handleTick st _ =
-  case st ^. stMessage of
-    Nothing ->
-      pure st
-    Just (Message msg lvl ttl) ->
-      if ttl <= 1
-         then pure $ st & stMessage .~ Nothing
-         else pure $ st & stMessage .~ Just (Message msg lvl (ttl - 1))
+handleTick st' _ =
+  checkAutoClose $ checkMessage st'
+
+  where
+    checkAutoClose st = do
+      let s = st & stAutoCloseTtl %~ flip (-) 1
+      let ttl = st ^. stAutoCloseTtl
+      if ttl <= 0
+        then halt s
+        else pure s
+    
+    checkMessage st =
+      case st ^. stMessage of
+        Nothing ->
+          st
+        Just (Message msg lvl ttl) ->
+          if ttl <= 1
+             then st & stMessage .~ Nothing
+             else st & stMessage .~ Just (Message msg lvl (ttl - 1))
 
   
 parseDetail :: Text -> [DetailLine]

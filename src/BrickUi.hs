@@ -59,7 +59,7 @@ main =
       void . forkIO $ forever $ do
         t <- Tm.getCurrentTime
         BCh.writeBChan chan $ EventTick t
-        threadDelay 2000000
+        threadDelay C.defaultTickPeriodMicroSeconds
 
       let st = C.AppState { C._stRoot = root
                           , C._stDetail = []
@@ -70,6 +70,7 @@ main =
                                                  }
                           , C._stMessage = Nothing
                           , C._stShowHelp = True
+                          , C._stAutoCloseTtl = C.defaultAutoCloseTtl
                           }
               
       st' <- runStateIODsl $ C.initState st items'
