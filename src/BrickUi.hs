@@ -61,6 +61,8 @@ main =
         BCh.writeBChan chan $ EventTick t
         threadDelay C.defaultTickPeriodMicroSeconds
 
+      dt <- Tm.getCurrentTime
+
       let st = C.AppState { C._stRoot = root
                           , C._stDetail = []
                           , C._stFocus = C.FoldersControl
@@ -71,6 +73,7 @@ main =
                           , C._stMessage = Nothing
                           , C._stShowHelp = True
                           , C._stAutoCloseTtl = C.defaultAutoCloseTtl
+                          , C._stTime = dt
                           }
               
       st' <- runStateIODsl $ C.initState st items'
@@ -232,10 +235,11 @@ drawHelp st =
     B.str " " <=>
     header "Passwords" <=>
     help "down/up" "next/prev password file" <=>
-    help "e" "edit selected password file in vim" <=>
     help "j/k" "next/prev password file" <=>
     help "right" "show selected password info" <=>
     help "tab/left/h" "go to folders" <=>
+    help "e" "edit selected password file in vim" <=>
+    help "u" "update - create new password" <=>
     B.str " " <=>
     header "Selected password file" <=>
     help "0-9" "copy line to clipboard" <=>
@@ -336,21 +340,19 @@ runEventDsl h a =
       B.suspendAndResume $ do
         r <- runGenPassword st dir
         runStateIODsl $ n r
+
+
+    (Free (C.RunUpdatePassword st file n)) -> 
+      B.suspendAndResume $ do
+        r <- CN.runCreatePassword CN.UpdateExisting (st ^. C.stLastGenPassState) file
+        runStateIODsl $ n r
       
   where
-    runPassShow :: Lib.PassFile -> IO (Either Text Text)
-    runPassShow file = do
-      r <- Lib.runProc "pass" ["show", Lib.pfPassPath file] Nothing
-
-      pure $ case r of
-               Right (t, _) -> Right t
-               Left (_, o, err) -> Left $ o <> "\n\n" <> err
-
     runGenPassword :: C.AppState ui -> Text -> IO CN.CreatePasswordResult
     runGenPassword st dir = do
-      r <- CN.runCreatePassword (st ^. C.stLastGenPassState) dir
+      r <- CN.runCreatePassword CN.NewPassword (st ^. C.stLastGenPassState) dir
     
-      if CN.rSuccess r
+      if CN.rSuccess r --TODO this should be in the controller
         then do
           let path = CN.rFolder r <> "/" <> CN.rName r
           void $ Lib.runProc "pass" ["insert", "-f", "-m", path] $ Just (CN.rPassword r)
@@ -399,6 +401,26 @@ runStateIODsl a =
       case Vec.findIndex (\s -> Lib.pdPath dir == Lib.pdPath s) dirs of
         Nothing -> runStateIODsl $ n st
         Just i -> runStateIODsl (n $ st & (C.stUi . bListDir) %~ BL.listMoveTo i)
+
+    (Free (C.StGetPassDetail _ file n)) -> do
+      r <- runPassShow file
+      runStateIODsl $ n r
+
+    (Free (C.StEditPass _ file n)) -> do
+      r <- Lib.shell "pass" ["edit", Lib.pfPassPath file]
+      let r' = case r of
+                 Right _ -> Nothing
+                 Left e -> Just $ show e
+
+      runStateIODsl $ n r'
+
+    (Free (C.StUpdatePassDetail _ file pwd n)) -> do
+
+      r <- Lib.runProc "pass" ["insert", "-m", "-f", Lib.pfPassPath file] $ Just pwd
+      let r' = case r of
+                 Right _ -> Nothing
+                 Left (e, _, _) -> Just $ show e
+      runStateIODsl $ n r'
 ------------------------
 
   
@@ -431,5 +453,13 @@ stateGetSelectedFile st =
   case BL.listSelectedElement (st ^. (C.stUi . bListFile)) of
     Just (_, f) -> Just f
     Nothing -> Nothing
+
+runPassShow :: Lib.PassFile -> IO (Either Text Text)
+runPassShow file = do
+  r <- Lib.runProc "pass" ["show", Lib.pfPassPath file] Nothing
+
+  pure $ case r of
+           Right (t, _) -> Right t
+           Left (_, o, err) -> Left $ o <> "\n\n" <> err
 ------------------------
 

@@ -21,7 +21,7 @@ import qualified Lib
 import qualified CreateNew as CN
 
 version :: Text
-version = "0.1.4.0"
+version = "0.1.5.0"
 
 data Level = LevelInfo
            | LevelWarn
@@ -33,10 +33,10 @@ data Message = Message { mText :: Text
                        }
 
 defaultTickPeriodMicroSeconds :: Int
-defaultTickPeriodMicroSeconds = 2000000
+defaultTickPeriodMicroSeconds = 2 * 1000000
 
 defaultMessageTtl :: Int
-defaultMessageTtl = 2
+defaultMessageTtl = 4
 
 defaultAutoCloseTtl :: Int
 defaultAutoCloseTtl = 60
@@ -59,6 +59,7 @@ data AppState ui = AppState { _stRoot :: FilePath
                             , _stMessage :: Maybe Message
                             , _stShowHelp :: Bool
                             , _stAutoCloseTtl :: Int
+                            , _stTime :: Tm.UTCTime
                             }
 
 makeLenses ''AppState
@@ -73,6 +74,9 @@ data IOStateActionF ui next = StGetSelectedDir (AppState ui) (Maybe Lib.PassDir 
                             | StReloadDirs (AppState ui) (AppState ui -> next)
                             | StGetDirs (AppState ui) ([Lib.PassDir] -> next)
                             | StSelectDir (AppState ui) Lib.PassDir (AppState ui -> next)
+                            | StGetPassDetail (AppState ui) Lib.PassFile (Either Text Text -> next)
+                            | StUpdatePassDetail (AppState ui) Lib.PassFile Text (Maybe Text -> next)
+                            | StEditPass (AppState ui) Lib.PassFile (Maybe Text -> next)
                             deriving (Functor)
 
 makeFree ''IOStateActionF
@@ -93,6 +97,7 @@ data EventActionF ui next = Halt (AppState ui)
                           | ClipLine (AppState ui) Int Lib.PassFile (Either Int () -> IOStateAction ui (AppState ui))
                           | RunEditFile (AppState ui) Lib.PassFile (Either Text Text -> IOStateAction ui (AppState ui))
                           | RunGenPassword (AppState ui) Text (CN.CreatePasswordResult -> IOStateAction ui (AppState ui))
+                          | RunUpdatePassword (AppState ui) Text (CN.CreatePasswordResult -> IOStateAction ui (AppState ui))
                           deriving (Functor)
 
 makeFree ''EventActionF
@@ -153,6 +158,11 @@ handleFilesKey st (key, []) =
     K.KChar 'l'  -> showPass 
     K.KRight     -> showPass
 
+    K.KChar 'u' ->
+      getSelectedFile st >>= \case
+        Nothing -> pure st
+        Just f -> handleUpdatePassword st f
+
     K.KChar 'e' ->
       getSelectedFile st >>= \case
         Nothing -> pure st
@@ -194,7 +204,7 @@ handleFilesKey st _ = pure st
 
 
 handleTick :: AppState ui -> Tm.UTCTime -> EventAction ui (AppState ui)
-handleTick st' _ =
+handleTick st' tm =
   checkAutoClose $ checkMessage st'
 
   where
@@ -203,7 +213,7 @@ handleTick st' _ =
       let ttl = st ^. stAutoCloseTtl
       if ttl <= 0
         then halt s
-        else pure s
+        else pure $ s & stTime .~ tm
     
     checkMessage st =
       case st ^. stMessage of
@@ -236,10 +246,42 @@ parseDetail d =
         else Txt.replace pwd "*****" s
 
 
+handleUpdatePassword :: MonadFree (EventActionF ui) m => AppState ui -> Lib.PassFile -> m (AppState ui)
+handleUpdatePassword st f =
+  runUpdatePassword st (Lib.pfPassPath f) $ \pr -> do
+    let validated = validatePassword False pr
+    msg <- case validated of
+             Just e -> pure $ Message e LevelError defaultMessageTtl
+             Nothing ->
+               stGetPassDetail st f >>= \case
+                 Left e -> pure $ Message ("Failed to read password text. " <> e) LevelInfo defaultMessageTtl
+                 Right pwd -> do
+                   let ls = Txt.lines pwd
+                   let old = case ls of
+                               (p:_) -> p
+                               _ -> ""
+
+                   let dt = Txt.pack $ Tm.formatTime Tm.defaultTimeLocale "%Y-%m-%d" $ st ^. stTime
+                   let new = Txt.intercalate "\n" $ [CN.rPassword pr] <> drop 1 ls <> ["password_" <> dt <> ": " <> old]
+
+                   stUpdatePassDetail st f new >>= \case
+                     Just e ->
+                       pure $ Message ("Failed to read password text. " <> e) LevelInfo defaultMessageTtl
+                     Nothing -> do
+                       if CN.rEditAfter pr
+                         then void $ stEditPass st f
+                         else pass
+                       pure $ Message ("Password updated: " <> (CN.rFolder pr <> "/" <> CN.rName pr)) LevelInfo defaultMessageTtl
+
+    pure $ st & stLastGenPassState .~ (Just . CN.rState $ pr)
+              & stMessage .~ Just msg
+              & stDetail .~ []
+
+
 handleCreatePassword :: MonadFree (EventActionF ui) m => AppState ui -> Lib.PassDir -> m (AppState ui)
 handleCreatePassword st dir = 
   runGenPassword st (Lib.pdPassPath dir) $ \pr -> do
-    let validated = validatePassword pr
+    let validated = validatePassword True pr
     let msg = case validated of
                 Nothing -> Message ("Password created: " <> (CN.rFolder pr <> "/" <> CN.rName pr)) LevelInfo defaultMessageTtl
                 Just e -> Message e LevelError defaultMessageTtl
@@ -251,30 +293,31 @@ handleCreatePassword st dir =
     pure $ st' & stLastGenPassState .~ (Just . CN.rState $ pr)
                & stMessage .~ Just msg
 
-  where
-    reloadDirs :: MonadFree (IOStateActionF ui) m => AppState ui -> m (AppState ui)
-    reloadDirs st1 =
-      stGetSelectedDir st1 >>= \case
-        Just d -> do
-          st2 <- stReloadDirs st1
-          dirs <- stGetDirs st2
 
-          case filter (\search -> Lib.pdPath d == Lib.pdPath search) dirs of
-            (found : _) -> do
-              -- Select the directory
-              st3 <- stSelectDir st2 found
-              -- Show the selected dir's files
-              stShowFiles st3 $ Lib.pdFiles found
+reloadDirs :: MonadFree (IOStateActionF ui) m => AppState ui -> m (AppState ui)
+reloadDirs st1 =
+  stGetSelectedDir st1 >>= \case
+    Just d -> do
+      st2 <- stReloadDirs st1
+      dirs <- stGetDirs st2
 
-            _ ->
-              pure st2
+      case filter (\search -> Lib.pdPath d == Lib.pdPath search) dirs of
+        (found : _) -> do
+          -- Select the directory
+          st3 <- stSelectDir st2 found
+          -- Show the selected dir's files
+          stShowFiles st3 $ Lib.pdFiles found
 
-        Nothing ->
-          pure st1
+        _ ->
+          pure st2
 
-    validatePassword :: CN.CreatePasswordResult -> Maybe Text
-    validatePassword pr 
-      | not (CN.rSuccess pr) = Just "Password creation cancelled"
-      | Txt.length (CN.rPassword pr) < 3 = Just "Password creation aborted. Password must be longer than 3 chars"
-      | Txt.null (CN.rName pr) = Just "Password creation aborted. Name is required"
-      | otherwise = Nothing
+    Nothing ->
+      pure st1
+
+
+validatePassword :: Bool -> CN.CreatePasswordResult -> Maybe Text
+validatePassword newPassword pr 
+  | not (CN.rSuccess pr) = Just "Password creation cancelled"
+  | Txt.length (CN.rPassword pr) < 3 = Just "Password creation aborted. Password must be longer than 3 chars"
+  | newPassword && Txt.null (CN.rName pr) = Just "Password creation aborted. Name is required"
+  | otherwise = Nothing

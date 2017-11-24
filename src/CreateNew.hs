@@ -30,6 +30,10 @@ import qualified Graphics.Vty.Input.Events as K
 
 import qualified Crypto 
 
+data CreateType = NewPassword
+                | UpdateExisting
+                deriving (Eq)
+
 data Name = EditPass
           | EditFolder
           | EditName
@@ -44,21 +48,6 @@ data Name = EditPass
           | ButCancel
           deriving (Eq, Ord, Show)
 
-focusable :: [Name]
-focusable = [ EditFolder
-            , EditName
-            , EditPass
-            , EditLen
-            , CboxCaps
-            , CboxLower
-            , CboxNum
-            , CboxSymbol
-            , CboxRemoveAmbig
-            , CboxEditAfter
-            , ButOk
-            , ButCancel
-            ]
-            
 checkboxes :: [Name]
 checkboxes = [ CboxCaps
              , CboxLower
@@ -73,6 +62,8 @@ data Event = Event
            
 data St = St { _stEditPassword :: BE.Editor Text Name
              , _stEditFolder :: BE.Editor Text Name
+             , _stCreateType :: CreateType
+             , _stFocusable :: [Name]
              , _stEditName :: BE.Editor Text Name
              , _stEditLen :: BE.Editor Text Name
              , _stSuccess :: Bool
@@ -95,13 +86,27 @@ data CreatePasswordResult = CreatePasswordResult { rPassword :: Text
                                                  }
 
 
-runCreatePassword :: Maybe PrevState -> Text -> IO CreatePasswordResult
-runCreatePassword pv folder = do
+runCreatePassword :: CreateType -> Maybe PrevState -> Text -> IO CreatePasswordResult
+runCreatePassword ct pv folder = do
   chan <- BCh.newBChan 10
   seed' <- Crypto.genSeed
+  let focusable = (if ct == NewPassword then [EditFolder, EditName] else [])
+                  <> [ EditPass
+                     , EditLen
+                     , CboxCaps
+                     , CboxLower
+                     , CboxNum
+                     , CboxSymbol
+                     , CboxRemoveAmbig
+                     , CboxEditAfter
+                     , ButOk
+                     , ButCancel
+                     ]
   
   let st' = St { _stEditPassword = BE.editor EditPass (Just 1) ""
                , _stEditFolder = BE.editor EditFolder (Just 1) folder
+               , _stCreateType = ct
+               , _stFocusable = focusable
                , _stEditName = BE.editor EditName (Just 1) ""
                , _stEditLen = BE.editor EditLen (Just 1) $ maybe "21" (show . pLen) pv
                , _stSuccess = False
@@ -166,7 +171,7 @@ handleEvent st ev =
             _ -> B.continue st
 
         (K.KChar c, [m]) | m `elem` [K.MMeta, K.MAlt] ->
-          case Map.lookup c focusMap of
+          case Map.lookup c (focusMap st) of
             Just (n, _) -> case n of
                              x | x `elem` checkboxes -> B.continue $ toggleCbox st n
                              _ -> B.continue $ setFocus n
@@ -231,7 +236,7 @@ toggleCbox st n =
 drawUI :: St -> [B.Widget Name]
 drawUI st =
   [ BC.center ( B.hLimit 83 $
-    B.vLimit 20 $
+    B.vLimit (if st ^. stCreateType == NewPassword then 20 else 18) $
     B.withBorderStyle BBS.unicodeRounded $
     BB.border $
     B.padAll 1 $
@@ -302,16 +307,16 @@ drawUI st =
       (B.padLeft (B.Pad 2) $ controlsTR)
 
     controlsTR =
-      editor EditFolder (st ^. stEditFolder) 90
+      (if st ^. stCreateType == NewPassword then editor EditFolder (st ^. stEditFolder) 90 else B.emptyWidget)
       <=>
-      editor EditName (st ^. stEditName) 90
+      (if st ^. stCreateType == NewPassword then editor EditName (st ^. stEditName) 90 else B.emptyWidget)
       <=>
       editor EditPass (st ^. stEditPassword) 90
 
     titlesTL =
-      title EditFolder
+      (if st ^. stCreateType == NewPassword then title EditFolder else B.emptyWidget)
       <=>
-      title EditName
+      (if st ^. stCreateType == NewPassword then title EditName else B.emptyWidget)
       <=>
       title EditPass
 
@@ -373,8 +378,8 @@ getFocusKey n =
     ButCancel       -> ("Cance",   'l', "")
 
 
-focusMap :: Map.Map Char (Name, (Text, Char, Text))
-focusMap = Map.fromList $ go <$> focusable
+focusMap :: St -> Map.Map Char (Name, (Text, Char, Text))
+focusMap st = Map.fromList $ go <$> st ^. stFocusable
   where
     go n =
       let (pre, accel, post) = getFocusKey n in
