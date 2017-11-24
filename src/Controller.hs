@@ -21,7 +21,7 @@ import qualified Lib
 import qualified CreateNew as CN
 
 version :: Text
-version = "0.1.5.0"
+version = "0.1.5.1"
 
 data Level = LevelInfo
            | LevelWarn
@@ -237,8 +237,13 @@ parseDetail d =
   where
     go s =
       case Txt.breakOn ":" s of
-        (v, "") -> DetailLine s "" v
-        (k, v)  -> DetailLine s k v
+        (v, "") ->
+          DetailLine s "" v
+
+        (k, v) ->
+          if Txt.isPrefixOf "password_" k
+          then DetailLine s k "*****"
+          else DetailLine s k $ Txt.drop 1 v
 
     noPwd pwd s =
       if Txt.null pwd
