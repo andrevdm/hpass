@@ -100,18 +100,22 @@ getFilesRec p = do
 
 runProc :: Text -> [Text] -> Maybe Text -> IO (Either (Int, Text, Text) (Text, Text))
 runProc appPath args writeStdIn = do
-  let p' = Proc.proc (Txt.unpack appPath) (Txt.unpack <$> args)
-  let p = p' { Proc.std_out = Proc.CreatePipe
+  let p1 = Proc.proc (Txt.unpack appPath) (Txt.unpack <$> args)
+  let p2 = p1 { Proc.std_out = Proc.CreatePipe
              , Proc.std_err = Proc.CreatePipe
-             , Proc.std_in = Proc.CreatePipe
              }
+  let p = if isJust writeStdIn then p2 { Proc.std_in = Proc.CreatePipe } else p2
 
-  (Just inp, Just outp, Just errp, phandle) <- Proc.createProcess p
+  (inp, Just outp, Just errp, phandle) <- Proc.createProcess p
 
   case writeStdIn of
-    Just t -> do
-      hPutStrLn inp t
-      IO.hFlush inp
+    Just t -> 
+      case inp of
+        Just i -> do
+          hPutStrLn i t
+          IO.hFlush i
+        Nothing ->
+          pass
 
     Nothing ->
       pass
