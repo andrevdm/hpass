@@ -11,6 +11,7 @@ import           Control.Lens ((^.), (.~), (%~))
 import           Control.Lens.TH (makeLenses)
 import           Data.Time (UTCTime)
 import qualified Data.Time as Tm
+import qualified Data.List as Lst
 import qualified Data.Text as Txt
 import qualified Data.Vector as Vec
 import           Brick ((<+>), (<=>))
@@ -20,6 +21,7 @@ import qualified Brick.Markup as BM
 import           Brick.Markup ((@?))
 import qualified Brick.AttrMap as BA
 import qualified Brick.Widgets.List as BL
+import qualified Brick.Widgets.Edit as BE
 import qualified Brick.Widgets.Border as BB
 import qualified Brick.Widgets.Border.Style as BBS
 import           Control.Monad.Free (Free(..))
@@ -31,14 +33,11 @@ import qualified Lib
 import qualified CreateNew as CN
 import qualified Controller as C
 
-data Name = ListDir
-          | ListFile
-          deriving (Show, Ord, Eq)
-          
 newtype Event = EventTick UTCTime
 
-data BrickState = BrickState { _bListDir :: BL.List Name Lib.PassDir
-                             , _bListFile :: BL.List Name Lib.PassFile
+data BrickState = BrickState { _bListDir :: BL.List C.Name Lib.PassDir
+                             , _bListFile :: BL.List C.Name Lib.PassFile
+                             , _bEditSearch :: BE.Editor Text C.Name
                              }
 
 makeLenses ''BrickState
@@ -63,17 +62,20 @@ main =
 
       dt <- Tm.getCurrentTime
 
+      --TODO move to controller
       let st = C.AppState { C._stRoot = root
                           , C._stDetail = []
                           , C._stFocus = C.FoldersControl
                           , C._stLastGenPassState = Nothing
-                          , C._stUi = BrickState { _bListDir = BL.list ListDir items 1
-                                                 , _bListFile = BL.list ListFile Vec.empty 1
+                          , C._stUi = BrickState { _bListDir = BL.list C.FoldersControl items 1
+                                                 , _bListFile = BL.list C.FilesControl Vec.empty 1
+                                                 , _bEditSearch = BE.editor C.SearchControl (Just 1) ""
                                                  }
                           , C._stMessage = Nothing
                           , C._stShowHelp = True
                           , C._stAutoCloseTtl = C.defaultAutoCloseTtl
                           , C._stTime = dt
+                          , C._stSearching = False
                           }
               
       st' <- runStateIODsl $ C.initState st items'
@@ -83,7 +85,7 @@ main =
       putText "Pass root path not found"
 
 
-app :: B.App UIState Event Name
+app :: B.App UIState Event C.Name
 app = B.App { B.appDraw = drawUI
             , B.appChooseCursor = B.showFirstCursor
             , B.appHandleEvent = handleEvent
@@ -92,7 +94,7 @@ app = B.App { B.appDraw = drawUI
             }
 
 
-handleEvent :: UIState -> B.BrickEvent Name Event -> B.EventM Name (B.Next UIState)
+handleEvent :: UIState -> B.BrickEvent C.Name Event -> B.EventM C.Name (B.Next UIState)
 handleEvent st ev =
   case ev of
     (B.VtyEvent ve@(V.EvKey k ms)) -> do
@@ -106,7 +108,7 @@ handleEvent st ev =
     _ -> B.continue st
 
   where
-    handleBaseEvent :: V.Event -> UIState -> B.EventM Name UIState
+    handleBaseEvent :: V.Event -> UIState -> B.EventM C.Name UIState
     handleBaseEvent ve st' = 
       case st ^. C.stFocus of
         C.FilesControl -> do
@@ -117,8 +119,12 @@ handleEvent st ev =
           r <- BL.handleListEventVi BL.handleListEvent ve $ st' ^. (C.stUi . bListDir)
           pure $ st' & (C.stUi . bListDir) .~ r
   
+        C.SearchControl -> do
+          r <- BE.handleEditorEvent ve $ st' ^. (C.stUi . bEditSearch)
+          pure $ st' & (C.stUi . bEditSearch) .~ r
+  
 
-drawUI :: UIState -> [B.Widget Name]
+drawUI :: UIState -> [B.Widget C.Name]
 drawUI st =
   [ B.padTop (B.Pad 1) (drawListDir st <+> drawListFile st <+> drawDetail st <+> drawHelp st)
     <=>
@@ -126,14 +132,14 @@ drawUI st =
   ] 
 
 
-drawFooter :: UIState -> B.Widget Name
+drawFooter :: UIState -> B.Widget C.Name
 drawFooter st =
   B.padTop (B.Pad 1) $
   B.vLimit 1 $
   drawMessage (st ^. C.stMessage)
 
 
-drawMessage :: Maybe C.Message -> B.Widget Name
+drawMessage :: Maybe C.Message -> B.Widget C.Name
 drawMessage Nothing =
   let v = "hpass version: " <> C.version in
   drawMessage . Just $ C.Message v C.LevelInfo 1
@@ -146,7 +152,7 @@ drawMessage (Just (C.Message txt lvl _)) =
   B.withAttr attr $
   B.txt txt
   
-drawListDir :: UIState -> B.Widget Name
+drawListDir :: UIState -> B.Widget C.Name
 drawListDir st =
   B.hLimit 30 $ --TODO calc max width
   B.withBorderStyle BBS.unicodeRounded $
@@ -155,18 +161,27 @@ drawListDir st =
   BL.renderList listDrawDir ((st ^. C.stFocus) == C.FoldersControl) (st ^. (C.stUi . bListDir))
 
   
-drawListFile :: UIState -> B.Widget Name
+drawListFile :: UIState -> B.Widget C.Name
 drawListFile st =
   B.hLimit 50 $ --TODO calc max width across all
   B.padTop (B.Pad 1) $
   B.padBottom (B.Pad 1) $
-  B.withBorderStyle BBS.unicodeRounded $
-  BB.borderWithLabel (B.str "passwords") $
-  B.padAll 1 $
-  BL.renderList listDrawFile ((st ^. C.stFocus) == C.FilesControl) (st ^. (C.stUi . bListFile))
-
+  B.vBox [ files, search]
   
-drawDetail :: UIState -> B.Widget Name
+  where
+    files =
+      B.withBorderStyle BBS.unicodeRounded $
+      BB.borderWithLabel (B.str "passwords") $
+      B.padAll 1 $
+      BL.renderList listDrawFile ((st ^. C.stFocus) == C.FilesControl) (st ^. (C.stUi . bListFile))
+
+    search = 
+      B.hLimit 49 $
+      B.vLimit 1 $
+      B.padLeft (B.Pad 1) $
+      BE.renderEditor (B.txt . Txt.unlines) (st ^. C.stSearching) (st ^. C.stUi ^. bEditSearch)
+  
+drawDetail :: UIState -> B.Widget C.Name
 drawDetail st =
   if (not . null) $ st ^. C.stDetail
   then
@@ -211,7 +226,7 @@ listDrawFile _ f =
   B.str . Txt.unpack $ Lib.pfName f
 
 
-drawHelp :: UIState -> B.Widget Name
+drawHelp :: UIState -> B.Widget C.Name
 drawHelp st =
   if st ^. C.stShowHelp
   then
@@ -226,7 +241,8 @@ drawHelp st =
     header "Global" <=>
     help "?" "toggle help" <=>
     help "n" "create new password" <=>
-    help "q/esc" "exit" <=>
+    help "/" "search" <=>
+    help "q/esc" "exit / quit search" <=>
     B.str " " <=>
     header "Folders" <=>
     help "down/up" "next/prev folder" <=>
@@ -270,6 +286,8 @@ theMap :: BA.AttrMap
 theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.blue)
                               , (BL.listSelectedAttr       , V.blue  `B.on` V.white)
                               , (BL.listSelectedFocusedAttr, V.black `B.on` V.yellow)
+                              , (BE.editAttr               , V.black `B.on` V.cyan)
+                              , (BE.editFocusedAttr        , V.black `B.on` V.yellow)
                               , (customAttr                , B.fg V.cyan)
                               , ("detailNum"               , B.fg V.red)
                               , ("detailData"              , B.fg V.yellow)
@@ -283,9 +301,9 @@ theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.bl
                               ]
 
 ------------------------
-runEventDsl :: (UIState -> B.EventM Name UIState)
+runEventDsl :: (UIState -> B.EventM C.Name UIState)
             -> C.EventAction BrickState UIState
-            -> B.EventM Name (B.Next UIState)
+            -> B.EventM C.Name (B.Next UIState)
 runEventDsl h a =
   case a of
     (Pure st) -> B.continue st
@@ -296,6 +314,16 @@ runEventDsl h a =
     (Free (C.GetSelectedDir st n)) -> runEventDsl h (n $ stateGetSelectedDir st)
     (Free (C.GetSelectedFile st n)) -> runEventDsl h (n $ stateGetSelectedFile st)
 
+    (Free (C.ApplySearch st n)) -> do
+      st' <- liftIO $ stateReloadDirs st
+      runEventDsl h $ n st'
+
+    (Free (C.ClearSearch st n)) -> do
+      let st1 = st & (C.stUi . bEditSearch) .~ BE.editor C.SearchControl (Just 1) ""
+      st2 <- liftIO $ stateReloadDirs st1
+      runEventDsl h $ n st2
+
+  
     (Free (C.RunBaseHandler st n)) -> do
       st' <- h st 
       runEventDsl h (n st')
@@ -389,11 +417,8 @@ runStateIODsl a =
     (Free (C.StGetSelectedFile st n)) -> runStateIODsl (n $ stateGetSelectedFile st)
 
     (Free (C.StReloadDirs st n)) -> do
-      ps <- Lib.loadPass 0 "/" $ st ^. C.stRoot
-      let items = Vec.fromList $ Lib.flattenDirs ps
-
-      runStateIODsl $ n $ st & (C.stUi . bListDir) .~ BL.list ListDir items 1
-                             & (C.stUi . bListFile) .~ BL.list ListFile Vec.empty 1
+      st' <- stateReloadDirs st
+      runStateIODsl $ n st'
 
     (Free (C.StSelectDir st dir n)) -> do
       let dirs = st ^. (C.stUi . bListDir . BL.listElementsL)
@@ -423,11 +448,10 @@ runStateIODsl a =
       runStateIODsl $ n r'
 ------------------------
 
-  
 stateSetDirs :: UIState -> Lib.PassDir -> UIState
 stateSetDirs st dir =
   let items = Vec.fromList $ Lib.flattenDirs dir in
-  st & (C.stUi . bListDir) .~ BL.list ListDir items 1
+  st & (C.stUi . bListDir) .~ BL.list C.FoldersControl items 1
 
 stateClearFiles :: UIState -> UIState
 stateClearFiles st =
@@ -436,7 +460,7 @@ stateClearFiles st =
 stateShowFiles :: UIState -> [Lib.PassFile] -> UIState
 stateShowFiles st fs =
   let items = Vec.fromList fs in
-  st & (C.stUi . bListFile) .~ BL.list ListFile items 1
+  st & (C.stUi . bListFile) .~ BL.list C.FilesControl items 1
 
 stateLogError :: C.AppState ui0 -> Text -> C.AppState ui0
 stateLogError st e = 
@@ -461,5 +485,38 @@ runPassShow file = do
   pure $ case r of
            Right (t, _) -> Right t
            Left (_, o, err) -> Left $ o <> "\n\n" <> err
+
+  
+--TODO move to controller. Contoller must decide when to use cache and when to fetch again
+-- and do the filtering
+stateReloadDirs :: UIState -> IO UIState
+stateReloadDirs st = do
+  let search = Txt.toLower . Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. C.stUi ^. bEditSearch
+  
+  ps <- Lib.loadPass 0 "/" $ st ^. C.stRoot
+  let ds1 = Lib.flattenDirs ps
+
+  let ds2 = if Txt.null search
+              then ds1
+              else filterDir search <$> ds1
+                --(\d -> d { Lib.pdFiles = filter (Txt.isInfixOf search . Txt.toLower . Lib.pfName) (Lib.pdFiles d)}) <$> ds1
+  
+  let ds3 = filter (not . Lst.null . Lib.pdFiles) ds2
+  let items = Vec.fromList ds3
+
+  --TODO stShowFiles st $ Lib.pdFiles d
+  let st2 = st & (C.stUi . bListDir) .~ BL.list C.FoldersControl items 1
+               & (C.stUi . bListFile) .~ BL.list C.FilesControl Vec.empty 1
+               & C.stDetail .~ []
+  
+  case ds3 of
+    (a:_) -> pure . stateShowFiles st2 $ Lib.pdFiles a
+    _ -> pure st2
+
+  where
+    filterDir s d =
+      if Txt.isInfixOf s . Txt.toLower $ Lib.pdName d
+        then d
+        else d { Lib.pdFiles = filter (Txt.isInfixOf s . Txt.toLower . Lib.pfName) $ Lib.pdFiles d }
 ------------------------
 

@@ -21,7 +21,7 @@ import qualified Lib
 import qualified CreateNew as CN
 
 version :: Text
-version = "0.1.5.1"
+version = "0.1.5.2"
 
 data Level = LevelInfo
            | LevelWarn
@@ -48,7 +48,8 @@ data DetailLine = DetailLine { dlOriginal :: Text
 
 data Name = FoldersControl
           | FilesControl
-          deriving (Show, Eq)
+          | SearchControl
+          deriving (Show, Eq, Ord)
 
 
 data AppState ui = AppState { _stRoot :: FilePath
@@ -60,6 +61,7 @@ data AppState ui = AppState { _stRoot :: FilePath
                             , _stShowHelp :: Bool
                             , _stAutoCloseTtl :: Int
                             , _stTime :: Tm.UTCTime
+                            , _stSearching :: Bool
                             }
 
 makeLenses ''AppState
@@ -98,6 +100,8 @@ data EventActionF ui next = Halt (AppState ui)
                           | RunEditFile (AppState ui) Lib.PassFile (Either Text Text -> IOStateAction ui (AppState ui))
                           | RunGenPassword (AppState ui) Text (CN.CreatePasswordResult -> IOStateAction ui (AppState ui))
                           | RunUpdatePassword (AppState ui) Text (CN.CreatePasswordResult -> IOStateAction ui (AppState ui))
+                          | ClearSearch (AppState ui) (AppState ui -> next)
+                          | ApplySearch (AppState ui) (AppState ui -> next)
                           deriving (Functor)
 
 makeFree ''EventActionF
@@ -116,21 +120,46 @@ handleKeyPress :: AppState ui -> (K.Key, [K.Modifier]) -> EventAction ui (AppSta
 handleKeyPress st' (key, ms) =
   --Reset auto close TTL
   let st = st' & stAutoCloseTtl .~ defaultAutoCloseTtl in
-  
-  case key of
-    K.KEsc      -> halt st
-    K.KChar 'q' -> halt st
-    K.KChar '?' -> pure $ st & stShowHelp %~ not
-    K.KChar 'n'  -> 
-      getSelectedDir st >>= \case
-        Nothing -> pure st
-        Just d -> handleCreatePassword st d
 
-    _ ->
-      case st ^. stFocus of
-        FoldersControl -> handleFoldersKey st (key, ms)
-        FilesControl -> handleFilesKey st (key, ms)
+  if st ^. stSearching
+    then handleSearch st
+    else handleNormal st
+         
+  where
+    handleNormal st = 
+      case key of
+        K.KEsc      -> halt st
+        K.KChar 'q' -> halt st
+        K.KChar '?' -> pure $ st & stShowHelp %~ not
+        K.KChar '/' -> pure $ st & stSearching .~ True
+                                 & stFocus .~ SearchControl
 
+        K.KChar 'n'  -> 
+          getSelectedDir st >>= \case
+            Nothing -> pure st
+            Just d -> handleCreatePassword st d
+
+        _ ->
+          case st ^. stFocus of
+            FoldersControl -> handleFoldersKey st (key, ms)
+            FilesControl -> handleFilesKey st (key, ms)
+            SearchControl -> pure st
+
+    handleSearch st =
+      case key of
+        K.KEsc -> clearSearch $ st & stSearching .~ False
+                                   & stFocus .~ FoldersControl
+                                   & stDetail .~ []
+                            
+
+        K.KEnter -> applySearch $ st & stSearching .~ False
+                                     & stFocus .~ FilesControl
+                                     & stDetail .~ []
+
+        _ -> do
+          st1 <- runBaseHandler st --TODO slow, cache dir for period
+          applySearch st1
+    
 
 handleFoldersKey :: AppState ui -> (K.Key, [K.Modifier]) -> EventAction ui (AppState ui)
 handleFoldersKey st (key, _) = do
