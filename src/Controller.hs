@@ -23,7 +23,7 @@ import qualified Lib
 import qualified CreateNew as CN
 
 version :: Text
-version = "0.1.5.3"
+version = "0.1.5.4"
 
 data Level = LevelInfo
            | LevelWarn
