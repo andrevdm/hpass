@@ -71,24 +71,24 @@ makeLenses ''AppState
 
 
 
-data IOStateActionF ui next = StGetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
-                            | StGetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
-                            | StLogError (AppState ui) Text (AppState ui -> next)
-                            | StClearFiles (AppState ui) (AppState ui -> next)
-                            | StShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
-                            | StGetDirs (AppState ui) ([Lib.PassDir] -> next)
-                            | StReloadDirs (AppState ui) ([Lib.PassDir] -> next)
-                            | StUseDirs (AppState ui) [Lib.PassDir] (AppState ui -> next)
-                            | StSelectDir (AppState ui) Lib.PassDir (AppState ui -> next)
-                            | StGetPassDetail (AppState ui) Lib.PassFile (Either Text Text -> next)
-                            | StUpdatePassDetail (AppState ui) Lib.PassFile Text (Maybe Text -> next)
-                            | StEditPass (AppState ui) Lib.PassFile (Maybe Text -> next)
-                            | StGetSearchText (AppState ui) (Text -> next)
-                            | StClearSearch (AppState ui) (AppState ui -> next)
-                            deriving (Functor)
+data StateActionF ui next = StGetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
+                          | StGetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
+                          | StLogError (AppState ui) Text (AppState ui -> next)
+                          | StClearFiles (AppState ui) (AppState ui -> next)
+                          | StShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
+                          | StGetDirs (AppState ui) ([Lib.PassDir] -> next)
+                          | StReloadDirs (AppState ui) ([Lib.PassDir] -> next)
+                          | StUseDirs (AppState ui) [Lib.PassDir] (AppState ui -> next)
+                          | StSelectDir (AppState ui) Lib.PassDir (AppState ui -> next)
+                          | StGetPassDetail (AppState ui) Lib.PassFile (Either Text Text -> next)
+                          | StUpdatePassDetail (AppState ui) Lib.PassFile Text (Maybe Text -> next)
+                          | StEditPass (AppState ui) Lib.PassFile (Maybe Text -> next)
+                          | StGetSearchText (AppState ui) (Text -> next)
+                          | StClearSearch (AppState ui) (AppState ui -> next)
+                          deriving (Functor)
 
-makeFree ''IOStateActionF
-type IOStateAction ui = Free (IOStateActionF ui)
+makeFree ''StateActionF
+type StateAction ui = Free (StateActionF ui)
 
 
 
@@ -98,19 +98,19 @@ data EventActionF ui next = Halt (AppState ui)
                           | GetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
                           | RunBaseHandler (AppState ui) (AppState ui -> next)
 
-                          | GetPassDetail (AppState ui) Lib.PassFile (Either Text Text -> IOStateAction ui (AppState ui))
-                          | ClipLine (AppState ui) Int Lib.PassFile (Either Int () -> IOStateAction ui (AppState ui))
-                          | RunEditFile (AppState ui) Lib.PassFile (Either Text Text -> IOStateAction ui (AppState ui))
-                          | RunGenPassword (AppState ui) Text (CN.CreatePasswordResult -> IOStateAction ui (AppState ui))
-                          | RunUpdatePassword (AppState ui) Text (CN.CreatePasswordResult -> IOStateAction ui (AppState ui))
-                          | LiftSt (IOStateAction ui (AppState ui)) (AppState ui -> next)
+                          | GetPassDetail (AppState ui) Lib.PassFile (Either Text Text -> StateAction ui (AppState ui))
+                          | ClipLine (AppState ui) Int Lib.PassFile (Either Int () -> StateAction ui (AppState ui))
+                          | RunEditFile (AppState ui) Lib.PassFile (Either Text Text -> StateAction ui (AppState ui))
+                          | RunGenPassword (AppState ui) Text (CN.CreatePasswordResult -> StateAction ui (AppState ui))
+                          | RunUpdatePassword (AppState ui) Text (CN.CreatePasswordResult -> StateAction ui (AppState ui))
+                          | LiftSt (StateAction ui (AppState ui)) (AppState ui -> next)
                           deriving (Functor)
 
 makeFree ''EventActionF
 type EventAction ui = Free (EventActionF ui)
 
 
-initState :: AppState ui -> [Lib.PassDir] -> IOStateAction ui (AppState ui)
+initState :: AppState ui -> [Lib.PassDir] -> StateAction ui (AppState ui)
 initState st items = 
   -- Show the files for the first folder
   case items of
@@ -340,7 +340,7 @@ validatePassword newPassword pr
   | otherwise = Nothing
 
 
-reloadDirs :: MonadFree (IOStateActionF ui) m => AppState ui -> m (AppState ui)
+reloadDirs :: MonadFree (StateActionF ui) m => AppState ui -> m (AppState ui)
 reloadDirs st1 =
   stGetSelectedDir st1 >>= \case
     Just d -> do
@@ -362,7 +362,7 @@ reloadDirs st1 =
       pure st1
   
 
-applySearch :: AppState ui -> IOStateAction ui (AppState ui)
+applySearch :: AppState ui -> StateAction ui (AppState ui)
 applySearch st = do
   search <- Txt.toLower . Txt.strip <$> stGetSearchText st
   let ds1 = Vec.toList $ st ^. stDirsCache

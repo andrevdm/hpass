@@ -396,7 +396,7 @@ runEventDsl h a =
 
 
 ------------------------
-runStateIODsl :: C.IOStateAction BrickState UIState
+runStateIODsl :: C.StateAction BrickState UIState
               -> IO UIState
 runStateIODsl a =
   case a of
