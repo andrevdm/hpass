@@ -307,9 +307,6 @@ runEventDsl h a =
   case a of
     (Pure st) -> B.continue st
     (Free (C.Halt st)) -> B.halt st
-    (Free (C.LogError st e n)) -> runEventDsl h (n $ stateLogError st e)
-    (Free (C.ClearFiles st n)) -> runEventDsl h (n  $ stateClearFiles st)
-    (Free (C.ShowFiles st fs n)) -> runEventDsl h (n $ stateShowFiles st fs)
     (Free (C.GetSelectedDir st n)) -> runEventDsl h (n $ stateGetSelectedDir st)
     (Free (C.GetSelectedFile st n)) -> runEventDsl h (n $ stateGetSelectedFile st)
 
@@ -454,11 +451,6 @@ runStateIODsl a =
       let st' = st & (C.stUi . bEditSearch) .~ BE.editor C.SearchControl (Just 1) ""
       runStateIODsl $ n st'
 ------------------------
-
-stateSetDirs :: UIState -> Lib.PassDir -> UIState
-stateSetDirs st dir =
-  let items = Vec.fromList $ Lib.flattenDirs dir in
-  st & (C.stUi . bListDir) .~ BL.list C.FoldersControl items 1
 
 stateClearFiles :: UIState -> UIState
 stateClearFiles st =

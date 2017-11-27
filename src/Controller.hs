@@ -94,9 +94,6 @@ type IOStateAction ui = Free (IOStateActionF ui)
 data EventActionF ui next = Halt (AppState ui)
                           | GetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
                           | GetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
-                          | LogError (AppState ui) Text (AppState ui -> next)
-                          | ClearFiles (AppState ui) (AppState ui -> next)
-                          | ShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
                           | RunBaseHandler (AppState ui) (AppState ui -> next)
 
                           | GetPassDetail (AppState ui) Lib.PassFile (Either Text Text -> IOStateAction ui (AppState ui))
@@ -175,8 +172,8 @@ handleFoldersKey st (key, _) = do
            _ -> runBaseHandler st
 
   getSelectedDir st' >>= \case
-    Nothing -> clearFiles st'
-    Just d -> showFiles st' $ Lib.pdFiles d
+    Nothing -> liftSt $ stClearFiles st'
+    Just d -> liftSt $ stShowFiles st' $ Lib.pdFiles d
 
   where
     focusFile = pure $ st & stFocus .~ FilesControl
