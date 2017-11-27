@@ -11,7 +11,6 @@ import           Control.Lens ((^.), (.~), (%~))
 import           Control.Lens.TH (makeLenses)
 import           Data.Time (UTCTime)
 import qualified Data.Time as Tm
-import qualified Data.List as Lst
 import qualified Data.Text as Txt
 import qualified Data.Vector as Vec
 import           Brick ((<+>), (<=>))
@@ -314,16 +313,6 @@ runEventDsl h a =
     (Free (C.GetSelectedDir st n)) -> runEventDsl h (n $ stateGetSelectedDir st)
     (Free (C.GetSelectedFile st n)) -> runEventDsl h (n $ stateGetSelectedFile st)
 
-    (Free (C.ApplySearch st n)) -> do
-      st' <- liftIO $ stateReloadDirs st
-      runEventDsl h $ n st'
-
-    (Free (C.ClearSearch st n)) -> do
-      let st1 = st & (C.stUi . bEditSearch) .~ BE.editor C.SearchControl (Just 1) ""
-      st2 <- liftIO $ stateReloadDirs st1
-      runEventDsl h $ n st2
-
-  
     (Free (C.RunBaseHandler st n)) -> do
       st' <- h st 
       runEventDsl h (n st')
@@ -375,6 +364,11 @@ runEventDsl h a =
         r <- CN.runCreatePassword CN.UpdateExisting (st ^. C.stLastGenPassState) file
         runStateIODsl $ n r
       
+
+    (Free (C.LiftSt as n)) -> do
+      st <- liftIO $ runStateIODsl as
+      runEventDsl h $ n st
+      
   where
     runGenPassword :: C.AppState ui -> Text -> IO CN.CreatePasswordResult
     runGenPassword st dir = do
@@ -415,10 +409,19 @@ runStateIODsl a =
     (Free (C.StShowFiles st fs n)) -> runStateIODsl (n $ stateShowFiles st fs)
     (Free (C.StGetSelectedDir st n)) -> runStateIODsl (n $ stateGetSelectedDir st)
     (Free (C.StGetSelectedFile st n)) -> runStateIODsl (n $ stateGetSelectedFile st)
+    (Free (C.StGetSearchText st n)) -> runStateIODsl (n $ Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. C.stUi ^. bEditSearch)
+
+    (Free (C.StUseDirs st ds n)) -> do
+      let items = Vec.fromList ds
+      let st' = st & C.stDetail .~ []
+                   & (C.stUi . bListDir) .~ BL.list C.FoldersControl items 1
+                   & (C.stUi . bListFile) .~ BL.list C.FilesControl Vec.empty 1
+      runStateIODsl $ n st'
 
     (Free (C.StReloadDirs st n)) -> do
-      st' <- stateReloadDirs st
-      runStateIODsl $ n st'
+      ps <- Lib.loadPass 0 "/" $ st ^. C.stRoot
+      let ds = Lib.flattenDirs ps
+      runStateIODsl $ n ds
 
     (Free (C.StSelectDir st dir n)) -> do
       let dirs = st ^. (C.stUi . bListDir . BL.listElementsL)
@@ -446,6 +449,10 @@ runStateIODsl a =
                  Right _ -> Nothing
                  Left (e, _, _) -> Just $ show e
       runStateIODsl $ n r'
+
+    (Free (C.StClearSearch st n)) -> do
+      let st' = st & (C.stUi . bEditSearch) .~ BE.editor C.SearchControl (Just 1) ""
+      runStateIODsl $ n st'
 ------------------------
 
 stateSetDirs :: UIState -> Lib.PassDir -> UIState
@@ -485,38 +492,3 @@ runPassShow file = do
   pure $ case r of
            Right (t, _) -> Right t
            Left (_, o, err) -> Left $ o <> "\n\n" <> err
-
-  
---TODO move to controller. Contoller must decide when to use cache and when to fetch again
--- and do the filtering
-stateReloadDirs :: UIState -> IO UIState
-stateReloadDirs st = do
-  let search = Txt.toLower . Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. C.stUi ^. bEditSearch
-  
-  ps <- Lib.loadPass 0 "/" $ st ^. C.stRoot
-  let ds1 = Lib.flattenDirs ps
-
-  let ds2 = if Txt.null search
-              then ds1
-              else filterDir search <$> ds1
-                --(\d -> d { Lib.pdFiles = filter (Txt.isInfixOf search . Txt.toLower . Lib.pfName) (Lib.pdFiles d)}) <$> ds1
-  
-  let ds3 = filter (not . Lst.null . Lib.pdFiles) ds2
-  let items = Vec.fromList ds3
-
-  --TODO stShowFiles st $ Lib.pdFiles d
-  let st2 = st & (C.stUi . bListDir) .~ BL.list C.FoldersControl items 1
-               & (C.stUi . bListFile) .~ BL.list C.FilesControl Vec.empty 1
-               & C.stDetail .~ []
-  
-  case ds3 of
-    (a:_) -> pure . stateShowFiles st2 $ Lib.pdFiles a
-    _ -> pure st2
-
-  where
-    filterDir s d =
-      if Txt.isInfixOf s . Txt.toLower $ Lib.pdName d
-        then d
-        else d { Lib.pdFiles = filter (Txt.isInfixOf s . Txt.toLower . Lib.pfName) $ Lib.pdFiles d }
-------------------------
-

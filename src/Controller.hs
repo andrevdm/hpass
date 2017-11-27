@@ -12,6 +12,7 @@ import           Control.Lens ((^.), (.~), (%~))
 import           Control.Lens.TH (makeLenses)
 import qualified Data.Text as Txt
 import qualified Data.Time as Tm
+import qualified Data.List as Lst
 import           Control.Monad.Free.TH
 import           Control.Monad.Free
 --import           Control.Monad.Free.Church
@@ -73,12 +74,15 @@ data IOStateActionF ui next = StGetSelectedDir (AppState ui) (Maybe Lib.PassDir 
                             | StLogError (AppState ui) Text (AppState ui -> next)
                             | StClearFiles (AppState ui) (AppState ui -> next)
                             | StShowFiles (AppState ui) [Lib.PassFile] (AppState ui -> next)
-                            | StReloadDirs (AppState ui) (AppState ui -> next)
                             | StGetDirs (AppState ui) ([Lib.PassDir] -> next)
+                            | StReloadDirs (AppState ui) ([Lib.PassDir] -> next)
+                            | StUseDirs (AppState ui) [Lib.PassDir] (AppState ui -> next)
                             | StSelectDir (AppState ui) Lib.PassDir (AppState ui -> next)
                             | StGetPassDetail (AppState ui) Lib.PassFile (Either Text Text -> next)
                             | StUpdatePassDetail (AppState ui) Lib.PassFile Text (Maybe Text -> next)
                             | StEditPass (AppState ui) Lib.PassFile (Maybe Text -> next)
+                            | StGetSearchText (AppState ui) (Text -> next)
+                            | StClearSearch (AppState ui) (AppState ui -> next)
                             deriving (Functor)
 
 makeFree ''IOStateActionF
@@ -100,8 +104,7 @@ data EventActionF ui next = Halt (AppState ui)
                           | RunEditFile (AppState ui) Lib.PassFile (Either Text Text -> IOStateAction ui (AppState ui))
                           | RunGenPassword (AppState ui) Text (CN.CreatePasswordResult -> IOStateAction ui (AppState ui))
                           | RunUpdatePassword (AppState ui) Text (CN.CreatePasswordResult -> IOStateAction ui (AppState ui))
-                          | ClearSearch (AppState ui) (AppState ui -> next)
-                          | ApplySearch (AppState ui) (AppState ui -> next)
+                          | LiftSt (IOStateAction ui (AppState ui)) (AppState ui -> next)
                           deriving (Functor)
 
 makeFree ''EventActionF
@@ -147,18 +150,20 @@ handleKeyPress st' (key, ms) =
 
     handleSearch st =
       case key of
-        K.KEsc -> clearSearch $ st & stSearching .~ False
-                                   & stFocus .~ FoldersControl
-                                   & stDetail .~ []
-                            
+        K.KEsc -> 
+          liftSt $ applySearch =<< stClearSearch (st & stSearching .~ False
+                                                     & stFocus .~ FoldersControl
+                                                     & stDetail .~ [])
 
-        K.KEnter -> applySearch $ st & stSearching .~ False
-                                     & stFocus .~ FilesControl
-                                     & stDetail .~ []
+
+        K.KEnter ->
+          liftSt . applySearch $ st & stSearching .~ False
+                                    & stFocus .~ FilesControl
+                                    & stDetail .~ []
 
         _ -> do
-          st1 <- runBaseHandler st --TODO slow, cache dir for period
-          applySearch st1
+          st1 <- runBaseHandler st
+          liftSt $ applySearch st1
     
 
 handleFoldersKey :: AppState ui -> (K.Key, [K.Modifier]) -> EventAction ui (AppState ui)
@@ -328,12 +333,20 @@ handleCreatePassword st dir =
                & stMessage .~ Just msg
 
 
+validatePassword :: Bool -> CN.CreatePasswordResult -> Maybe Text
+validatePassword newPassword pr 
+  | not (CN.rSuccess pr) = Just "Password creation cancelled"
+  | Txt.length (CN.rPassword pr) < 3 = Just "Password creation aborted. Password must be longer than 3 chars"
+  | newPassword && Txt.null (CN.rName pr) = Just "Password creation aborted. Name is required"
+  | otherwise = Nothing
+
+
 reloadDirs :: MonadFree (IOStateActionF ui) m => AppState ui -> m (AppState ui)
 reloadDirs st1 =
   stGetSelectedDir st1 >>= \case
     Just d -> do
-      st2 <- stReloadDirs st1
-      dirs <- stGetDirs st2
+      dirs <- stReloadDirs st1
+      st2 <- stUseDirs st1 dirs
 
       case filter (\search -> Lib.pdPath d == Lib.pdPath search) dirs of
         (found : _) -> do
@@ -347,11 +360,28 @@ reloadDirs st1 =
 
     Nothing ->
       pure st1
+  
 
+ --TODO slow, use cache
+applySearch :: AppState ui -> IOStateAction ui (AppState ui)
+applySearch st = do
+  search <- Txt.toLower . Txt.strip <$> stGetSearchText st
+  ds1 <- stReloadDirs st
 
-validatePassword :: Bool -> CN.CreatePasswordResult -> Maybe Text
-validatePassword newPassword pr 
-  | not (CN.rSuccess pr) = Just "Password creation cancelled"
-  | Txt.length (CN.rPassword pr) < 3 = Just "Password creation aborted. Password must be longer than 3 chars"
-  | newPassword && Txt.null (CN.rName pr) = Just "Password creation aborted. Name is required"
-  | otherwise = Nothing
+  let ds2 = if Txt.null search
+              then ds1
+              else filterDir search <$> ds1
+  
+  let ds3 = filter (not . Lst.null . Lib.pdFiles) ds2
+
+  st2 <- stUseDirs st ds3
+  
+  case ds3 of
+    (a:_) -> stShowFiles st2 $ Lib.pdFiles a
+    _ -> pure st2
+
+  where
+    filterDir s d =
+      if Txt.isInfixOf s . Txt.toLower $ Lib.pdName d
+        then d
+        else d { Lib.pdFiles = filter (Txt.isInfixOf s . Txt.toLower . Lib.pfName) $ Lib.pdFiles d }
