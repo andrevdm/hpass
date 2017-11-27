@@ -21,15 +21,15 @@ import qualified Lib
 import qualified CreateNew as CN
 
 version :: Text
-version = "0.1.5.2"
+version = "0.1.5.3"
 
 data Level = LevelInfo
            | LevelWarn
            | LevelError
 
-data Message = Message { mText :: Text
-                       , mLevel :: Level
-                       , mTtl :: Int
+data Message = Message { mText :: !Text
+                       , mLevel :: !Level
+                       , mTtl :: !Int
                        }
 
 defaultTickPeriodMicroSeconds :: Int
@@ -41,9 +41,9 @@ defaultMessageTtl = 4
 defaultAutoCloseTtl :: Int
 defaultAutoCloseTtl = 60
 
-data DetailLine = DetailLine { dlOriginal :: Text
-                             , dlKey :: Text
-                             , dlValue :: Text
+data DetailLine = DetailLine { dlOriginal :: !Text
+                             , dlKey :: !Text
+                             , dlValue :: !Text
                              }
 
 data Name = FoldersControl
@@ -52,16 +52,16 @@ data Name = FoldersControl
           deriving (Show, Eq, Ord)
 
 
-data AppState ui = AppState { _stRoot :: FilePath
-                            , _stDetail :: [DetailLine]
-                            , _stFocus :: Name
-                            , _stUi :: ui
-                            , _stLastGenPassState :: Maybe CN.PrevState
-                            , _stMessage :: Maybe Message
-                            , _stShowHelp :: Bool
-                            , _stAutoCloseTtl :: Int
-                            , _stTime :: Tm.UTCTime
-                            , _stSearching :: Bool
+data AppState ui = AppState { _stRoot :: !FilePath
+                            , _stDetail :: ![DetailLine]
+                            , _stFocus :: !Name
+                            , _stUi :: !ui
+                            , _stLastGenPassState :: !(Maybe CN.PrevState)
+                            , _stMessage :: !(Maybe Message)
+                            , _stShowHelp :: !Bool
+                            , _stAutoCloseTtl :: !Int
+                            , _stTime :: !Tm.UTCTime
+                            , _stSearching :: !Bool
                             }
 
 makeLenses ''AppState

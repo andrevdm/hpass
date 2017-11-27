@@ -35,9 +35,9 @@ import qualified Controller as C
 
 newtype Event = EventTick UTCTime
 
-data BrickState = BrickState { _bListDir :: BL.List C.Name Lib.PassDir
-                             , _bListFile :: BL.List C.Name Lib.PassFile
-                             , _bEditSearch :: BE.Editor Text C.Name
+data BrickState = BrickState { _bListDir :: !(BL.List C.Name Lib.PassDir)
+                             , _bListFile :: !(BL.List C.Name Lib.PassFile)
+                             , _bEditSearch :: !(BE.Editor Text C.Name)
                              }
 
 makeLenses ''BrickState
