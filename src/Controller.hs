@@ -13,6 +13,7 @@ import           Control.Lens.TH (makeLenses)
 import qualified Data.Text as Txt
 import qualified Data.Time as Tm
 import qualified Data.List as Lst
+import qualified Data.Vector as Vec
 import           Control.Monad.Free.TH
 import           Control.Monad.Free
 --import           Control.Monad.Free.Church
@@ -63,6 +64,7 @@ data AppState ui = AppState { _stRoot :: !FilePath
                             , _stAutoCloseTtl :: !Int
                             , _stTime :: !Tm.UTCTime
                             , _stSearching :: !Bool
+                            , _stDirsCache :: !(Vec.Vector Lib.PassDir)
                             }
 
 makeLenses ''AppState
@@ -343,27 +345,27 @@ reloadDirs st1 =
   stGetSelectedDir st1 >>= \case
     Just d -> do
       dirs <- stReloadDirs st1
-      st2 <- stUseDirs st1 dirs
+      st2' <- stUseDirs st1 dirs
+      let st3 = st2' & stDirsCache .~ Vec.fromList dirs
 
       case filter (\search -> Lib.pdPath d == Lib.pdPath search) dirs of
         (found : _) -> do
           -- Select the directory
-          st3 <- stSelectDir st2 found
+          st4 <- stSelectDir st3 found
           -- Show the selected dir's files
-          stShowFiles st3 $ Lib.pdFiles found
+          stShowFiles st4 $ Lib.pdFiles found
 
         _ ->
-          pure st2
+          pure st3
 
     Nothing ->
       pure st1
   
 
- --TODO slow, use cache
 applySearch :: AppState ui -> IOStateAction ui (AppState ui)
 applySearch st = do
   search <- Txt.toLower . Txt.strip <$> stGetSearchText st
-  ds1 <- stReloadDirs st
+  let ds1 = Vec.toList $ st ^. stDirsCache
 
   let ds2 = if Txt.null search
               then ds1

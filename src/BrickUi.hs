@@ -75,6 +75,7 @@ main =
                           , C._stAutoCloseTtl = C.defaultAutoCloseTtl
                           , C._stTime = dt
                           , C._stSearching = False
+                          , C._stDirsCache = items
                           }
               
       st' <- runStateIODsl $ C.initState st items'
