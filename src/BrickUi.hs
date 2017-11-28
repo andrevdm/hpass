@@ -40,8 +40,16 @@ data BrickState = BrickState { _bListDir :: !(BL.List C.Name Lib.PassDir)
                              }
 
 makeLenses ''BrickState
-
 type UIState = C.AppState BrickState
+
+app :: B.App UIState Event C.Name
+app = B.App { B.appDraw = drawUI
+            , B.appChooseCursor = B.showFirstCursor
+            , B.appHandleEvent = handleEvent
+            , B.appStartEvent = pure
+            , B.appAttrMap = const theMap
+            }
+
 
 main :: IO ()
 main = 
@@ -78,20 +86,11 @@ main =
                           , C._stDirsCache = items
                           }
               
-      st' <- runStateIODsl $ C.initState st items'
+      st' <- runStateDsl $ C.initState st items'
       void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st'
 
     Nothing ->
       putText "Pass root path not found"
-
-
-app :: B.App UIState Event C.Name
-app = B.App { B.appDraw = drawUI
-            , B.appChooseCursor = B.showFirstCursor
-            , B.appHandleEvent = handleEvent
-            , B.appStartEvent = pure
-            , B.appAttrMap = const theMap
-            }
 
 
 handleEvent :: UIState -> B.BrickEvent C.Name Event -> B.EventM C.Name (B.Next UIState)
@@ -112,15 +111,15 @@ handleEvent st ev =
     handleBaseEvent ve st' = 
       case st ^. C.stFocus of
         C.FilesControl -> do
-          r <- BL.handleListEventVi BL.handleListEvent ve $ st' ^. (C.stUi . bListFile)
+          r <- BL.handleListEventVi BL.handleListEvent ve $ st' ^. C.stUi ^. bListFile
           pure $ st' & (C.stUi . bListFile) .~ r
 
         C.FoldersControl -> do
-          r <- BL.handleListEventVi BL.handleListEvent ve $ st' ^. (C.stUi . bListDir)
+          r <- BL.handleListEventVi BL.handleListEvent ve $ st' ^. C.stUi ^. bListDir
           pure $ st' & (C.stUi . bListDir) .~ r
   
         C.SearchControl -> do
-          r <- BE.handleEditorEvent ve $ st' ^. (C.stUi . bEditSearch)
+          r <- BE.handleEditorEvent ve $ st' ^. C.stUi ^. bEditSearch
           pure $ st' & (C.stUi . bEditSearch) .~ r
   
 
@@ -156,9 +155,9 @@ drawListDir :: UIState -> B.Widget C.Name
 drawListDir st =
   B.hLimit 30 $ --TODO calc max width
   B.withBorderStyle BBS.unicodeRounded $
-  BB.borderWithLabel (B.str "folders") $
+  BB.borderWithLabel (B.txt "folders") $
   B.padAll 1 $
-  BL.renderList listDrawDir ((st ^. C.stFocus) == C.FoldersControl) (st ^. (C.stUi . bListDir))
+  BL.renderList listDrawDir ((st ^. C.stFocus) == C.FoldersControl) (st ^. C.stUi ^. bListDir)
 
   
 drawListFile :: UIState -> B.Widget C.Name
@@ -171,9 +170,9 @@ drawListFile st =
   where
     files =
       B.withBorderStyle BBS.unicodeRounded $
-      BB.borderWithLabel (B.str "passwords") $
+      BB.borderWithLabel (B.txt "passwords") $
       B.padAll 1 $
-      BL.renderList listDrawFile ((st ^. C.stFocus) == C.FilesControl) (st ^. (C.stUi . bListFile))
+      BL.renderList listDrawFile ((st ^. C.stFocus) == C.FilesControl) (st ^. C.stUi ^. bListFile)
 
     search = 
       B.hLimit 49 $
@@ -190,7 +189,7 @@ drawDetail st =
     B.padBottom (B.Pad 2) $
     B.vLimit 20 $
     B.withBorderStyle BBS.unicodeRounded $
-    BB.borderWithLabel (B.str "detail") $
+    BB.borderWithLabel (B.txt "detail") $
     B.padAll 1 $
     formatPassData $ st ^. C.stDetail
   else
@@ -218,12 +217,12 @@ formatPassData ls =
 
 listDrawDir :: Bool -> Lib.PassDir -> B.Widget a
 listDrawDir _ d =
-  B.str . Txt.unpack $ Txt.replicate (Lib.pdDepth d) " " <> Lib.pdName d
+  B.txt $ Txt.replicate (Lib.pdDepth d) " " <> Lib.pdName d
 
 
 listDrawFile :: Bool -> Lib.PassFile -> B.Widget a
 listDrawFile _ f =
-  B.str . Txt.unpack $ Lib.pfName f
+  B.txt $ Lib.pfName f
 
 
 drawHelp :: UIState -> B.Widget C.Name
@@ -234,7 +233,7 @@ drawHelp st =
     B.padTop (B.Pad 8) $
     B.padBottom (B.Pad 2) $
     B.withBorderStyle BBS.unicodeRounded $
-    BB.borderWithLabel (B.str "help") $
+    BB.borderWithLabel (B.txt "help") $
     B.padAll 1 $
 
 
@@ -243,12 +242,12 @@ drawHelp st =
     help "n" "create new password" <=>
     help "/" "search" <=>
     help "q/esc" "exit / quit search" <=>
-    B.str " " <=>
+    B.txt " " <=>
     header "Folders" <=>
     help "down/up" "next/prev folder" <=>
     help "j/k" "next/prev folder" <=>
     help "tab/right/l" "go to passwords" <=>
-    B.str " " <=>
+    B.txt " " <=>
     header "Passwords" <=>
     help "down/up" "next/prev password file" <=>
     help "j/k" "next/prev password file" <=>
@@ -256,7 +255,7 @@ drawHelp st =
     help "tab/left/h" "go to folders" <=>
     help "e" "edit selected password file in vim" <=>
     help "u" "update - create new password" <=>
-    B.str " " <=>
+    B.txt " " <=>
     header "Selected password file" <=>
     help "0-9" "copy line to clipboard" <=>
     help "" "(cleard after 45 seconds)"
@@ -278,27 +277,6 @@ drawHelp st =
       BM.markup (r @? "helpText")
   
 
-customAttr :: BA.AttrName
-customAttr = BL.listSelectedAttr <> "custom"
-
-
-theMap :: BA.AttrMap
-theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.blue)
-                              , (BL.listSelectedAttr       , V.blue  `B.on` V.white)
-                              , (BL.listSelectedFocusedAttr, V.black `B.on` V.yellow)
-                              , (BE.editAttr               , V.black `B.on` V.cyan)
-                              , (BE.editFocusedAttr        , V.black `B.on` V.yellow)
-                              , (customAttr                , B.fg V.cyan)
-                              , ("detailNum"               , B.fg V.red)
-                              , ("detailData"              , B.fg V.yellow)
-                              , ("detailKey"               , B.fg V.blue)
-                              , ("messageError"            , B.fg V.red)
-                              , ("messageWarn"             , B.fg V.brightYellow)
-                              , ("messageInfo"             , B.fg V.cyan)
-                              , ("helpHeader"              , V.withStyle (V.withStyle (B.fg V.green) V.bold) V.underline)
-                              , ("helpKey"                 , B.fg V.green)
-                              , ("helpText"                , B.fg V.green)
-                              ]
 
 ------------------------
 runEventDsl :: (UIState -> B.EventM C.Name UIState)
@@ -317,54 +295,54 @@ runEventDsl h a =
  
 
     (Free (C.ClipLine _ line file n)) ->
-      if True
+      if True --TODO check if suspend required
         then do
           r <- liftIO $ do
             res <- runClip line file
-            runStateIODsl $ n res
+            runStateDsl $ n res
 
           B.continue r
         else
           B.suspendAndResume $ do
             res <- runClip line file
-            runStateIODsl $ n res
+            runStateDsl $ n res
 
 
     (Free (C.GetPassDetail _ file n)) ->
-      if True
+      if True --TODO check if suspend required
         then do
           res <- liftIO $ do
             r <- runPassShow file
-            runStateIODsl $ n r
+            runStateDsl $ n r
 
           B.continue res
         else
           B.suspendAndResume $ do
             r <- runPassShow file
-            runStateIODsl $ n r
+            runStateDsl $ n r
 
 
     (Free (C.RunEditFile _ file n)) -> 
       B.suspendAndResume $ do
         void $ Lib.shell "pass" ["edit", Lib.pfPassPath file]
         showRes <- runPassShow file
-        runStateIODsl $ n showRes
+        runStateDsl $ n showRes
 
 
     (Free (C.RunGenPassword st dir n)) -> 
       B.suspendAndResume $ do
         r <- runGenPassword st dir
-        runStateIODsl $ n r
+        runStateDsl $ n r
 
 
     (Free (C.RunUpdatePassword st file n)) -> 
       B.suspendAndResume $ do
         r <- CN.runCreatePassword CN.UpdateExisting (st ^. C.stLastGenPassState) file
-        runStateIODsl $ n r
+        runStateDsl $ n r
       
 
     (Free (C.LiftSt as n)) -> do
-      st <- liftIO $ runStateIODsl as
+      st <- liftIO $ runStateDsl as
       runEventDsl h $ n st
       
   where
@@ -372,7 +350,7 @@ runEventDsl h a =
     runGenPassword st dir = do
       r <- CN.runCreatePassword CN.NewPassword (st ^. C.stLastGenPassState) dir
     
-      if CN.rSuccess r --TODO this should be in the controller
+      if CN.rSuccess r
         then do
           let path = CN.rFolder r <> "/" <> CN.rName r
           void $ Lib.runProc "pass" ["insert", "-f", "-m", path] $ Just (CN.rPassword r)
@@ -396,41 +374,41 @@ runEventDsl h a =
 
 
 ------------------------
-runStateIODsl :: C.StateAction BrickState UIState
+runStateDsl :: C.StateAction BrickState UIState
               -> IO UIState
-runStateIODsl a =
+runStateDsl a =
   case a of
     (Pure st) -> pure st
-    (Free (C.StGetDirs st n)) -> runStateIODsl $ n . Vec.toList $ st ^. (C.stUi . bListDir . BL.listElementsL)
-    (Free (C.StLogError st e n)) -> runStateIODsl (n $ stateLogError st e)
-    (Free (C.StClearFiles st n)) -> runStateIODsl (n $ stateClearFiles st)
-    (Free (C.StShowFiles st fs n)) -> runStateIODsl (n $ stateShowFiles st fs)
-    (Free (C.StGetSelectedDir st n)) -> runStateIODsl (n $ stateGetSelectedDir st)
-    (Free (C.StGetSelectedFile st n)) -> runStateIODsl (n $ stateGetSelectedFile st)
-    (Free (C.StGetSearchText st n)) -> runStateIODsl (n $ Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. C.stUi ^. bEditSearch)
+    (Free (C.StGetDirs st n)) -> runStateDsl $ n . Vec.toList $ st ^. C.stUi ^. bListDir ^. BL.listElementsL
+    (Free (C.StLogError st e n)) -> runStateDsl (n $ stateLogError st e)
+    (Free (C.StClearFiles st n)) -> runStateDsl (n $ stateClearFiles st)
+    (Free (C.StShowFiles st fs n)) -> runStateDsl (n $ stateShowFiles st fs)
+    (Free (C.StGetSelectedDir st n)) -> runStateDsl (n $ stateGetSelectedDir st)
+    (Free (C.StGetSelectedFile st n)) -> runStateDsl (n $ stateGetSelectedFile st)
+    (Free (C.StGetSearchText st n)) -> runStateDsl (n $ Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. C.stUi ^. bEditSearch)
 
     (Free (C.StUseDirs st ds n)) -> do
       let items = Vec.fromList ds
       let st' = st & C.stDetail .~ []
                    & (C.stUi . bListDir) .~ BL.list C.FoldersControl items 1
                    & (C.stUi . bListFile) .~ BL.list C.FilesControl Vec.empty 1
-      runStateIODsl $ n st'
+      runStateDsl $ n st'
 
     (Free (C.StReloadDirs st n)) -> do
       ps <- Lib.loadPass 0 "/" $ st ^. C.stRoot
       let ds = Lib.flattenDirs ps
-      runStateIODsl $ n ds
+      runStateDsl $ n ds
 
     (Free (C.StSelectDir st dir n)) -> do
       let dirs = st ^. (C.stUi . bListDir . BL.listElementsL)
 
       case Vec.findIndex (\s -> Lib.pdPath dir == Lib.pdPath s) dirs of
-        Nothing -> runStateIODsl $ n st
-        Just i -> runStateIODsl (n $ st & (C.stUi . bListDir) %~ BL.listMoveTo i)
+        Nothing -> runStateDsl $ n st
+        Just i -> runStateDsl (n $ st & (C.stUi . bListDir) %~ BL.listMoveTo i)
 
     (Free (C.StGetPassDetail _ file n)) -> do
       r <- runPassShow file
-      runStateIODsl $ n r
+      runStateDsl $ n r
 
     (Free (C.StEditPass _ file n)) -> do
       r <- Lib.shell "pass" ["edit", Lib.pfPassPath file]
@@ -438,7 +416,7 @@ runStateIODsl a =
                  Right _ -> Nothing
                  Left e -> Just $ show e
 
-      runStateIODsl $ n r'
+      runStateDsl $ n r'
 
     (Free (C.StUpdatePassDetail _ file pwd n)) -> do
 
@@ -446,25 +424,28 @@ runStateIODsl a =
       let r' = case r of
                  Right _ -> Nothing
                  Left (e, _, _) -> Just $ show e
-      runStateIODsl $ n r'
+      runStateDsl $ n r'
 
     (Free (C.StClearSearch st n)) -> do
       let st' = st & (C.stUi . bEditSearch) .~ BE.editor C.SearchControl (Just 1) ""
-      runStateIODsl $ n st'
-------------------------
+      runStateDsl $ n st'
+
 
 stateClearFiles :: UIState -> UIState
 stateClearFiles st =
   st & (C.stUi . bListFile) %~ BL.listClear
+
 
 stateShowFiles :: UIState -> [Lib.PassFile] -> UIState
 stateShowFiles st fs =
   let items = Vec.fromList fs in
   st & (C.stUi . bListFile) .~ BL.list C.FilesControl items 1
 
+
 stateLogError :: C.AppState ui0 -> Text -> C.AppState ui0
 stateLogError st e = 
   st & C.stMessage .~ Just (C.Message e C.LevelError C.defaultMessageTtl)
+
 
 stateGetSelectedDir :: UIState -> Maybe Lib.PassDir
 stateGetSelectedDir st =
@@ -472,11 +453,13 @@ stateGetSelectedDir st =
     Just (_, d) -> Just d
     Nothing -> Nothing
 
+
 stateGetSelectedFile :: UIState -> Maybe Lib.PassFile
 stateGetSelectedFile st =
   case BL.listSelectedElement (st ^. (C.stUi . bListFile)) of
     Just (_, f) -> Just f
     Nothing -> Nothing
+
 
 runPassShow :: Lib.PassFile -> IO (Either Text Text)
 runPassShow file = do
@@ -485,3 +468,27 @@ runPassShow file = do
   pure $ case r of
            Right (t, _) -> Right t
            Left (_, o, err) -> Left $ o <> "\n\n" <> err
+
+
+-----------------------------------------------------------
+customAttr :: BA.AttrName
+customAttr = BL.listSelectedAttr <> "custom"
+
+
+theMap :: BA.AttrMap
+theMap = BA.attrMap V.defAttr [ (BL.listAttr               , V.white `B.on` V.blue)
+                              , (BL.listSelectedAttr       , V.blue  `B.on` V.white)
+                              , (BL.listSelectedFocusedAttr, V.black `B.on` V.yellow)
+                              , (BE.editAttr               , V.black `B.on` V.cyan)
+                              , (BE.editFocusedAttr        , V.black `B.on` V.yellow)
+                              , (customAttr                , B.fg V.cyan)
+                              , ("detailNum"               , B.fg V.red)
+                              , ("detailData"              , B.fg V.yellow)
+                              , ("detailKey"               , B.fg V.blue)
+                              , ("messageError"            , B.fg V.red)
+                              , ("messageWarn"             , B.fg V.brightYellow)
+                              , ("messageInfo"             , B.fg V.cyan)
+                              , ("helpHeader"              , V.withStyle (V.withStyle (B.fg V.green) V.bold) V.underline)
+                              , ("helpKey"                 , B.fg V.green)
+                              , ("helpText"                , B.fg V.green)
+                              ]

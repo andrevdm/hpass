@@ -23,36 +23,27 @@ import qualified Lib
 import qualified CreateNew as CN
 
 version :: Text
-version = "0.1.5.4"
+version = "0.1.5.5"
 
 data Level = LevelInfo
            | LevelWarn
            | LevelError
-
-data Message = Message { mText :: !Text
-                       , mLevel :: !Level
-                       , mTtl :: !Int
-                       }
-
-defaultTickPeriodMicroSeconds :: Int
-defaultTickPeriodMicroSeconds = 2 * 1000000
-
-defaultMessageTtl :: Int
-defaultMessageTtl = 4
-
-defaultAutoCloseTtl :: Int
-defaultAutoCloseTtl = 60
-
-data DetailLine = DetailLine { dlOriginal :: !Text
-                             , dlKey :: !Text
-                             , dlValue :: !Text
-                             }
 
 data Name = FoldersControl
           | FilesControl
           | SearchControl
           deriving (Show, Eq, Ord)
 
+
+data Message = Message { mText :: !Text
+                       , mLevel :: !Level
+                       , mTtl :: !Int
+                       }
+
+data DetailLine = DetailLine { dlOriginal :: !Text
+                             , dlKey :: !Text
+                             , dlValue :: !Text
+                             }
 
 data AppState ui = AppState { _stRoot :: !FilePath
                             , _stDetail :: ![DetailLine]
@@ -66,9 +57,7 @@ data AppState ui = AppState { _stRoot :: !FilePath
                             , _stSearching :: !Bool
                             , _stDirsCache :: !(Vec.Vector Lib.PassDir)
                             }
-
 makeLenses ''AppState
-
 
 
 data StateActionF ui next = StGetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
@@ -91,13 +80,10 @@ makeFree ''StateActionF
 type StateAction ui = Free (StateActionF ui)
 
 
-
-  
 data EventActionF ui next = Halt (AppState ui)
                           | GetSelectedDir (AppState ui) (Maybe Lib.PassDir -> next)
                           | GetSelectedFile (AppState ui) (Maybe Lib.PassFile -> next)
                           | RunBaseHandler (AppState ui) (AppState ui -> next)
-
                           | GetPassDetail (AppState ui) Lib.PassFile (Either Text Text -> StateAction ui (AppState ui))
                           | ClipLine (AppState ui) Int Lib.PassFile (Either Int () -> StateAction ui (AppState ui))
                           | RunEditFile (AppState ui) Lib.PassFile (Either Text Text -> StateAction ui (AppState ui))
@@ -205,7 +191,7 @@ handleFilesKey st (key, []) =
                                Left e -> pure $ st & stDetail .~ []
                                                    & stMessage .~ Just (Message e LevelError defaultMessageTtl))
 
-    K.KChar c | (c `elem` ("0123456789" :: [Char])) ->
+    K.KChar c | c `elem` ("0123456789" :: [Char]) ->
       getSelectedFile st >>= \case
         Nothing -> pure st
         Just f -> case readMaybe [c] :: Maybe Int of
@@ -226,12 +212,9 @@ handleFilesKey st (key, []) =
         Nothing -> pure st
         Just f ->
           getPassDetail st f $ \case
-            Left e ->
-              stLogError st e
-
-            Right d -> 
-              pure $ st & stDetail .~ parseDetail d
-                        & stShowHelp .~ False
+            Left e -> stLogError st e
+            Right d -> pure $ st & stDetail .~ parseDetail d
+                                 & stShowHelp .~ False
 
 handleFilesKey st _ = pure st
 
@@ -254,8 +237,8 @@ handleTick st' tm =
           st
         Just (Message msg lvl ttl) ->
           if ttl <= 1
-             then st & stMessage .~ Nothing
-             else st & stMessage .~ Just (Message msg lvl (ttl - 1))
+            then st & stMessage .~ Nothing
+            else st & stMessage .~ Just (Message msg lvl (ttl - 1))
 
   
 parseDetail :: Text -> [DetailLine]
@@ -275,8 +258,8 @@ parseDetail d =
 
         (k, v) ->
           if Txt.isPrefixOf "password_" k
-          then DetailLine s k "*****"
-          else DetailLine s k $ Txt.drop 1 v
+            then DetailLine s k "*****"
+            else DetailLine s k $ Txt.drop 1 v
 
     noPwd pwd s =
       if Txt.null pwd
@@ -384,3 +367,14 @@ applySearch st = do
       if Txt.isInfixOf s . Txt.toLower $ Lib.pdName d
         then d
         else d { Lib.pdFiles = filter (Txt.isInfixOf s . Txt.toLower . Lib.pfName) $ Lib.pdFiles d }
+
+
+
+defaultTickPeriodMicroSeconds :: Int
+defaultTickPeriodMicroSeconds = 2 * 1000000
+
+defaultMessageTtl :: Int
+defaultMessageTtl = 4
+
+defaultAutoCloseTtl :: Int
+defaultAutoCloseTtl = 60

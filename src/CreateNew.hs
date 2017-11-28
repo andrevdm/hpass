@@ -48,14 +48,15 @@ data Name = EditPass
           | ButCancel
           deriving (Eq, Ord, Show)
 
-checkboxes :: [Name]
-checkboxes = [ CboxCaps
-             , CboxLower
-             , CboxNum
-             , CboxSymbol
-             , CboxRemoveAmbig
-             , CboxEditAfter
-             ]
+
+data PrevState = PrevState { pLen :: Int
+                           , pUseNum :: Bool
+                           , pUseCaps :: Bool
+                           , pUseLower :: Bool
+                           , pUseSymbol :: Bool
+                           , pEditAfter :: Bool
+                           , pRemoveAmbig :: Bool
+                           }
 
 data Event = Event
   
@@ -84,6 +85,15 @@ data CreatePasswordResult = CreatePasswordResult { rPassword :: Text
                                                  , rState :: PrevState
                                                  , rErrorMessage :: Maybe Text
                                                  }
+
+checkboxes :: [Name]
+checkboxes = [ CboxCaps
+             , CboxLower
+             , CboxNum
+             , CboxSymbol
+             , CboxRemoveAmbig
+             , CboxEditAfter
+             ]
 
 
 runCreatePassword :: CreateType -> Maybe PrevState -> Text -> IO CreatePasswordResult
@@ -236,13 +246,14 @@ toggleCbox st n =
 drawUI :: St -> [B.Widget Name]
 drawUI st =
   [ BC.center ( B.hLimit 83 $
-    B.vLimit (if st ^. stCreateType == NewPassword then 20 else 18) $
-    B.withBorderStyle BBS.unicodeRounded $
-    BB.border $
-    B.padAll 1 $
-    body)
+                B.vLimit (if st ^. stCreateType == NewPassword then 20 else 18) $
+                B.withBorderStyle BBS.unicodeRounded $
+                BB.border $
+                B.padAll 1 $
+                body
+              )
     <=>
-    (B.txt $ st ^. stDebug)
+    B.txt (st ^. stDebug)
   ]
 
   where
@@ -253,7 +264,7 @@ drawUI st =
       <=>
       (B.padLeft (B.Pad 2) $ B.padTop (B.Pad 1) $ editAfter)
       <=>
-      (BC.center $ acceptButtons) 
+      (BC.center acceptButtons) 
 
     acceptButtons =
       button ButOk
@@ -333,33 +344,14 @@ drawUI st =
     title' useMarkup pre accel post =
       if useMarkup
       then
-        (BM.markup $ pre @? "titleText")
+        BM.markup (pre @? "titleText")
         <+>
-        (BM.markup $ accel @? "titleAccel")
+        BM.markup (accel @? "titleAccel")
         <+>
-        (BM.markup $ post @? "titleText")
+        BM.markup (post @? "titleText")
       else
         B.txt pre <+> B.txt (if Txt.null pre then Txt.toUpper accel else accel) <+> B.txt post
      
-
-customAttr :: BA.AttrName
-customAttr = BL.listSelectedAttr <> "custom"
-
-
-theMap :: BA.AttrMap
-theMap = BA.attrMap V.defAttr [ (BL.listAttr,         V.white `B.on` V.blue)
-                              , (BL.listSelectedAttr, V.blue `B.on` V.white)
-                              , (BE.editAttr,         V.white `B.on` V.blue)
-                              , (BE.editFocusedAttr,  V.black `B.on` V.yellow)
-                              , (customAttr,          B.fg V.cyan)
-                              , ("titleText",         B.fg V.green)
-                              , ("titleAccel",        V.withStyle (V.withForeColor V.defAttr V.brightGreen) V.underline)
-                              , ("cbox",              V.white `B.on` V.blue)
-                              , ("cboxFocus",         V.black `B.on` V.yellow)
-                              , ("button",            V.defAttr)
-                              , ("buttonFocus",       V.black `B.on` V.yellow)
-                              ]
-
 
 getFocusKey :: Name -> (Text, Char, Text)
 getFocusKey n =
@@ -415,15 +407,6 @@ createOptions st =
                         }
 
 
-data PrevState = PrevState { pLen :: Int
-                           , pUseNum :: Bool
-                           , pUseCaps :: Bool
-                           , pUseLower :: Bool
-                           , pUseSymbol :: Bool
-                           , pEditAfter :: Bool
-                           , pRemoveAmbig :: Bool
-                           }
-
 createPrevState :: St -> PrevState
 createPrevState st =
  PrevState { pLen = fromMaybe 21 . readMaybe . Txt.unpack . Txt.strip . Txt.unlines $ BE.getEditContents $ st ^. stEditLen
@@ -434,3 +417,23 @@ createPrevState st =
            , pEditAfter = Map.findWithDefault "X" CboxEditAfter (st ^. stTexts) == "X"
            , pRemoveAmbig = Map.findWithDefault "X" CboxRemoveAmbig (st ^. stTexts) == "X"
            }
+
+
+customAttr :: BA.AttrName
+customAttr = BL.listSelectedAttr <> "custom"
+
+
+theMap :: BA.AttrMap
+theMap = BA.attrMap V.defAttr [ (BL.listAttr,         V.white `B.on` V.blue)
+                              , (BL.listSelectedAttr, V.blue `B.on` V.white)
+                              , (BE.editAttr,         V.white `B.on` V.blue)
+                              , (BE.editFocusedAttr,  V.black `B.on` V.yellow)
+                              , (customAttr,          B.fg V.cyan)
+                              , ("titleText",         B.fg V.green)
+                              , ("titleAccel",        V.withStyle (V.withForeColor V.defAttr V.brightGreen) V.underline)
+                              , ("cbox",              V.white `B.on` V.blue)
+                              , ("cboxFocus",         V.black `B.on` V.yellow)
+                              , ("button",            V.defAttr)
+                              , ("buttonFocus",       V.black `B.on` V.yellow)
+                              ]
+
