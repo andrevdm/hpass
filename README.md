@@ -22,6 +22,7 @@ List of your password store folders and passwords.
  - Up/down navigates the folders
  - Moving right goes to the password list
  - Pressing 'n' will generate a new password in the selected folder (see below)
+ - Search for password files by name by pressing `/`
 
 ![](docs/hpass_main.png)
 
