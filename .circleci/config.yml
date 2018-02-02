@@ -23,9 +23,4 @@ jobs:
           paths:
             - ~/.stack
             - ./.stack-work
-      - run:
-          name: Test
-          command: make test
-      - run:
-          name: Lint
-          command: make lint
+
