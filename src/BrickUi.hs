@@ -87,7 +87,10 @@ main =
                           }
               
       st' <- runStateDsl $ C.initState st items'
-      void $ B.customMain (V.mkVty V.defaultConfig) (Just chan) app st'
+      let buildVty = V.mkVty V.defaultConfig
+      initialVty <- buildVty
+      stResult <- B.customMain initialVty buildVty (Just chan) app st
+      void $ B.customMain initialVty buildVty (Just chan) app st'
 
     Nothing ->
       putText "Pass root path not found"
